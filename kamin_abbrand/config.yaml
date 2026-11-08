@@ -1,5 +1,5 @@
 name: "Kamin Abbrand"
-version: "0.2.0"
+version: "0.2.1"
 slug: kamin_abbrand
 url: "https://github.com/jhb2020hh/ha-kamin-abbrand"
 description: "Abbrandsteuerung für den Kaminofen. Beobachtungsbetrieb: rechnet mit, zeigt an und steuert nichts."
@@ -35,18 +35,3 @@ schema:
   modus: list(parallel)
   log_stufe: list(debug|info|warning|error)
   helfer_praefix: match(^[a-z0-9_]+$)
-  # Nur noch zum Übernehmen der alten Zuweisung beim ersten Start von 0.2.0. Der Supervisor
-  # entfernt Werte ohne Schema, deshalb entfällt der Block erst in einer späteren Version.
-  entitaeten:
-    abgas: str?
-    druck: str?
-    gradient: str?
-    t_max_3min: str?
-    tuer: str?
-    t_wt: str?
-    t_wt_anstieg: str?
-    puffer_unten: str?
-    wartung: str?
-    handbetrieb: str?
-    tuerkontakt_vorhanden: str?
-    can_alter: str?

@@ -32,7 +32,7 @@ PORT_INTEGRATION = 8100
 STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 

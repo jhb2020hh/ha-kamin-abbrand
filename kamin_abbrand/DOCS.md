@@ -36,7 +36,7 @@ Auf der Seite **Ein-/Ausgänge** weist du Sensoren und Schalter zu. Pflicht ist 
 
 Fehlen die Helfer einer Live-Automation, startet die App nach einer Minute im Standby mit ihren Vorgaben.
 
-Unter Einstellungen → Apps bleiben nur `log_stufe` und `helfer_praefix`. Der Block `entitaeten` dient in Version 0.2.0 nur noch dem Übernehmen der alten Zuweisung.
+Unter Einstellungen → Apps stehen nur `log_stufe` und `helfer_praefix`. Alle Sensoren und Schalter weist du in der Oberfläche zu.
 
 ## Regler und Auto-Tune
 

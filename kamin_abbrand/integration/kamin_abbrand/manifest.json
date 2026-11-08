@@ -1,7 +1,7 @@
 {
   "domain": "kamin_abbrand",
   "name": "Kamin Abbrand",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "codeowners": ["@jhb2020hh"],
   "config_flow": true,
   "dependencies": [],

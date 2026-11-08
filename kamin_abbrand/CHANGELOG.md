@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Behoben: Die App-Optionen ließen sich nicht speichern (fehlende Option `entitaeten`). Der alte Block ist entfernt, zugewiesen wird nur noch in der Oberfläche.
+
 ## 0.2.0
 
 - Eigene Oberfläche in der Seitenleiste: Start, Verlauf, Ein-/Ausgänge, Einstellungen, Regler, Service.
