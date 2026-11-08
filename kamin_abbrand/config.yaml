@@ -1,5 +1,5 @@
 name: "Kamin Abbrand"
-version: "0.2.1"
+version: "0.2.2"
 slug: kamin_abbrand
 url: "https://github.com/jhb2020hh/ha-kamin-abbrand"
 description: "Abbrandsteuerung für den Kaminofen. Beobachtungsbetrieb: rechnet mit, zeigt an und steuert nichts."

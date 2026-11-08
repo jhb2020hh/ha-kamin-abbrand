@@ -267,7 +267,7 @@ class App:
             return None
         rollen = self.speicher.rollen
         return {"druck": self.eingaenge.zahl(rollen.get("druck")),
-                "klappe_ist": self.eingaenge.zahl(rollen.get("klappe_ist"))}
+                "klappe_ist": self.eingaenge.stellung(rollen.get("klappe_ist"))}
 
     def _betrieb_zaehlen(self, zustand: Any, jetzt: float) -> None:
         if self.speicher is None or zustand.phase not in _BETRIEB_PHASEN:

@@ -93,7 +93,7 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "abgas": t,
         "ziel": p.t_ziel,
         "klappe_soll": z.klappe_soll if z else None,
-        "klappe_ist": ein.zahl(_rolle(app, "klappe_ist")),
+        "klappe_ist": ein.stellung(_rolle(app, "klappe_ist")),
         "zug": ein.zahl(_rolle(app, "druck")),
         "twt": ein.zahl(_rolle(app, "t_wt")),
         "puffer_unten": puffer,

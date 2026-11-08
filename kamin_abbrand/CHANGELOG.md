@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Behoben: Die Iststellung der Klappe wird auch von Cover- und Licht-Entitäten gelesen.
+
 ## 0.2.1
 
 - Behoben: Die App-Optionen ließen sich nicht speichern (fehlende Option `entitaeten`). Der alte Block ist entfernt, zugewiesen wird nur noch in der Oberfläche.

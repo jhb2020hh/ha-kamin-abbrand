@@ -277,6 +277,21 @@ class Eingaenge:
     def zahl(self, eid: Optional[str]) -> Optional[float]:
         return self._zahl(eid)
 
+    def stellung(self, eid: Optional[str]) -> Optional[float]:
+        """Stellung in %. Cover und Licht melden sie im Attribut, nicht im Zustand."""
+        eintrag = self.eintrag(eid)
+        if eintrag is None or eintrag.zustand in _WEG_ZUSTAENDE:
+            return None
+        domain = eid.split(".", 1)[0]
+        if domain == "cover":
+            return als_zahl(eintrag.attribute.get("current_position"))
+        if domain == "light":
+            if eintrag.zustand == "off":
+                return 0.0
+            helligkeit = als_zahl(eintrag.attribute.get("brightness"))
+            return None if helligkeit is None else float(round(helligkeit * 100 / 255))
+        return als_zahl(eintrag.zustand)
+
     def wert(self, eid: Optional[str]) -> Optional[str]:
         return self._wert(eid)
 

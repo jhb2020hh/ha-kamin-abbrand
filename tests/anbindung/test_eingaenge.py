@@ -225,3 +225,24 @@ def test_startzustand_wartet_auf_gueltige_phase(phase):
 def test_startzustand_ohne_timestamp_gilt_ab_jetzt():
     z = baue(zustand("input_select.kamin_abbrand_phase", "Glut")).startzustand(JETZT)
     assert z.phase == "Glut" and z.phase_seit == JETZT
+
+
+@pytest.mark.parametrize("eid, wert, attribute, erwartet", [
+    ("cover.klappe", "open", {"current_position": 83}, 83),
+    ("cover.klappe", "closed", {"current_position": 0}, 0),
+    ("light.klappe", "on", {"brightness": 212}, 83),
+    ("light.klappe", "off", {}, 0),
+    ("light.klappe", "on", {}, None),
+    ("number.klappe", "40", {}, 40),
+    ("input_number.klappe", "40.5", {}, 40.5),
+    ("cover.klappe", "unavailable", {"current_position": 83}, None),
+    ("light.klappe", "unknown", {}, None),
+])
+def test_stellung(eid, wert, attribute, erwartet):
+    eingaenge = Eingaenge(E, "kamin_abbrand", zusatz=[eid])
+    eingaenge.aufbauen([zustand(eid, wert, attribute)], JETZT)
+    assert eingaenge.stellung(eid) == erwartet
+
+
+def test_stellung_ohne_zuweisung():
+    assert baue().stellung(None) is None
