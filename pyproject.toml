@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["kamin_abbrand/app"]
+addopts = "-q"
+markers = ["langsam: lange Läufe"]

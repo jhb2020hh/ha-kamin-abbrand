@@ -1,0 +1,125 @@
+:root {
+  --bg: #f3f2ef; --panel: #fff; --line: #dcd8d1; --fg: #22201d; --muted: #6d675f; --akzent: #c4471b;
+  --warn: #9a6f00; --crit: #b3261e; --ok: #23806f; --grid: #e8e4de; --blau: #2366a8;
+  --standby: #8d887f; --tuer: #4f8fc9; --anheizen: #2f9e44; --abbrand: #2b8a3e; --ausbrand: #a8682e;
+  --nachlegen: #c99700; --glut: #7b3fa0; --abkuehlen: #2f74b5; --fehler: #c92a2a; --wartung: #2e8f86;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #171615; --panel: #201f1d; --line: #38352f; --fg: #ece8e1; --muted: #a39d93; --akzent: #f07a45;
+  --warn: #e2b33c; --crit: #f0645a; --ok: #4fc2ad; --grid: #2c2a26; --blau: #6aa6e4;
+  --standby: #8a857d; --tuer: #6fa8d6; --anheizen: #51cf66; --abbrand: #40c057; --ausbrand: #c78f55;
+  --nachlegen: #fcc419; --glut: #b57edc; --abkuehlen: #6aa6e4; --fehler: #ff6b6b; --wartung: #43a89e;
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #171615; --panel: #201f1d; --line: #38352f; --fg: #ece8e1; --muted: #a39d93; --akzent: #f07a45;
+  --warn: #e2b33c; --crit: #f0645a; --ok: #4fc2ad; --grid: #2c2a26; --blau: #6aa6e4;
+  --standby: #8a857d; --tuer: #6fa8d6; --anheizen: #51cf66; --abbrand: #40c057; --ausbrand: #c78f55;
+  --nachlegen: #fcc419; --glut: #b57edc; --abkuehlen: #6aa6e4; --fehler: #ff6b6b; --wartung: #43a89e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif }
+h1 { font-size: 1.35rem; margin: 0 0 4px } h2 { font-size: 1.02rem; margin: 0 0 10px }
+p { margin: 0 } .leise { color: var(--muted); font-size: .88rem }
+.rahmen { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 100vh }
+.navi { padding: 16px 10px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh }
+.marke { font-weight: 700; font-size: 1.1rem; padding: 4px 12px 14px }
+.navi button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 6px; color: inherit; font: inherit; cursor: pointer }
+.navi button:hover { background: var(--grid) }
+.navi button[aria-current="page"] { background: var(--panel); box-shadow: inset 3px 0 0 var(--akzent); font-weight: 600 }
+main { padding: 20px 24px 60px; max-width: 980px; width: 100% }
+.banner { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--blau); border-radius: 6px; padding: 8px 12px; margin-bottom: 16px; font-size: .9rem }
+.karte { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 14px }
+.raster { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px }
+.raster .karte { margin: 0 }
+.kopf { margin-bottom: 14px }
+
+/* Status */
+.status { display: flex; gap: 16px; align-items: flex-start }
+.punkt { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--farbe); margin-top: 4px }
+.punkt.blinkt { animation: blink 1.4s ease-in-out infinite }
+@keyframes blink { 50% { opacity: .3 } }
+@media (prefers-reduced-motion: reduce) { .punkt.blinkt { animation: none; outline: 3px solid var(--farbe); outline-offset: 2px } }
+.status h1 { font-size: 1.7rem; line-height: 1.15 }
+.status .satz { font-size: 1.05rem; margin-top: 4px }
+.infoknopf { margin-left: auto; flex: none; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: none; color: var(--muted); font: italic 700 1rem Georgia, serif; cursor: pointer }
+.infotext { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted) }
+.fortschritt { height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; margin-top: 12px }
+.fortschritt i { display: block; height: 100%; background: var(--farbe); transition: width .4s }
+.wert .gross { font-size: 2.1rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1 }
+.wert .gross small { font-size: 1rem; font-weight: 400; color: var(--muted); margin-left: 3px }
+.etikett { font-size: .8rem; color: var(--muted); margin-bottom: 4px }
+.balken { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin-top: 8px }
+.balken i { display: block; height: 100%; background: var(--akzent) }
+.band { display: flex; gap: 3px }
+.band span { flex: 1; text-align: center; padding: 7px 2px; font-size: .78rem; background: var(--grid); color: var(--muted); border-radius: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.band span.aktiv { background: var(--farbe); color: #fff; font-weight: 600 }
+.modus { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden }
+.modus span { padding: 6px 14px; font-size: .88rem; color: var(--muted) }
+.modus span.aktiv { background: var(--fg); color: var(--bg); font-weight: 600 }
+.zeile { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap }
+
+/* Bedienung */
+button.haupt, button.neben { font: inherit; padding: 8px 14px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line) }
+button.haupt { background: var(--akzent); color: #fff; border-color: var(--akzent); font-weight: 600 }
+button.neben { background: none; color: inherit }
+button:disabled { opacity: .55; cursor: not-allowed }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px }
+input[type=text], input[type=number] { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100% }
+input[type=range] { width: 100%; accent-color: var(--akzent) }
+.chip { display: inline-block; font-size: .72rem; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap }
+.chip.pflicht { color: var(--crit); border-color: var(--crit) } .chip.empfohlen { color: var(--warn); border-color: var(--warn) }
+.chip.eigen { color: var(--akzent); border-color: var(--akzent) }
+
+.rolle { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 6px 18px; padding: 12px 0; border-top: 1px solid var(--line) }
+.rolle:first-of-type { border-top: 0 }
+.rolle .titel { font-weight: 600 }
+.auswahl { position: relative }
+.liste { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 3px 0 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; max-height: 260px; overflow: auto; box-shadow: 0 6px 18px rgba(0,0,0,.22) }
+.liste li { padding: 6px 8px; border-radius: 4px; cursor: pointer }
+.liste li:hover, .liste li.markiert { background: var(--grid) }
+.liste small { display: block; color: var(--muted) }
+.aktuell { font-size: .84rem; color: var(--muted); margin-top: 4px }
+.warnung { color: var(--warn); font-size: .84rem; margin-top: 4px }
+.schalter { display: flex; gap: 10px; align-items: center; cursor: pointer }
+.schalter input { width: 18px; height: 18px; accent-color: var(--akzent) }
+.leiste { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; display: flex; justify-content: flex-end; gap: 8px }
+
+.feld { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 4px 18px; padding: 11px 0; border-top: 1px solid var(--line); align-items: center }
+.feld:first-of-type { border-top: 0 }
+.feld .eingabe { display: flex; align-items: center; gap: 6px }
+.feld .unten { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.textknopf { background: none; border: 0; padding: 0; color: var(--akzent); font: inherit; font-size: .84rem; cursor: pointer; text-decoration: underline }
+details > summary { cursor: pointer; font-weight: 600; font-size: 1.02rem }
+details[open] > summary { margin-bottom: 8px }
+.schieber { padding: 12px 0; border-top: 1px solid var(--line) }
+.schieber:first-of-type { border-top: 0 }
+.schieber .zeile b { font-variant-numeric: tabular-nums }
+.vorschlag { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 12px 0 }
+
+table.kv { border-collapse: collapse; width: 100% } .kv td { padding: 5px 0; border-top: 1px solid var(--line); vertical-align: top }
+.kv tr:first-child td { border-top: 0 } .kv td:first-child { color: var(--muted); width: 40% }
+.meldung { padding: 5px 0; border-top: 1px solid var(--line); font-size: .9rem } .meldung:first-child { border-top: 0 }
+.meldung time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px }
+code { font-size: .85em; word-break: break-all }
+
+.grafik { position: relative } .grafik svg { display: block; width: 100%; height: auto }
+.grafik text { fill: var(--muted); font-size: 11px }
+.tipp { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: .8rem; white-space: nowrap; font-variant-numeric: tabular-nums; display: none }
+.legende { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .82rem; color: var(--muted); margin-top: 8px }
+.legende i { display: inline-block; width: 12px; height: 3px; margin-right: 5px; vertical-align: 3px; background: var(--c) }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 6px; opacity: 0; transition: .2s; pointer-events: none; max-width: calc(100vw - 32px) }
+.toast.zeigen { opacity: 1; transform: translate(-50%, 0) }
+
+@media (max-width: 720px) {
+  .rahmen { display: block }
+  .navi { flex-direction: row; overflow-x: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 16px; z-index: 6; background: var(--bg) }
+  .marke { display: none } .navi button { white-space: nowrap; flex: none }
+  .navi button[aria-current="page"] { box-shadow: inset 0 -3px 0 var(--akzent) }
+  main { padding: 14px 16px 50px }
+  .rolle, .feld { grid-template-columns: minmax(0, 1fr) }
+  .status h1 { font-size: 1.4rem } .band span { font-size: .68rem }
+}

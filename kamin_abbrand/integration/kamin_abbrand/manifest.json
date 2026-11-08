@@ -1,0 +1,12 @@
+{
+  "domain": "kamin_abbrand",
+  "name": "Kamin Abbrand",
+  "version": "0.2.0",
+  "codeowners": ["@jhb2020hh"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/jhb2020hh/ha-kamin-abbrand",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "requirements": []
+}

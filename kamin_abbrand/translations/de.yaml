@@ -1,0 +1,50 @@
+configuration:
+  modus:
+    name: Modus
+    description: In Phase 1 gibt es nur „parallel“. Die App liest, rechnet und protokolliert, sie steuert nichts.
+  log_stufe:
+    name: Log-Stufe
+    description: Ausführlichkeit des App-Protokolls.
+  helfer_praefix:
+    name: Helfer-Präfix
+    description: Namensanfang der Helfer, zum Beispiel input_number.<Präfix>_t_ziel und input_select.<Präfix>_phase.
+  entitaeten:
+    name: Entitäten
+    description: Woher die App ihre Messwerte und Bedienzustände liest.
+    fields:
+      abgas:
+        name: Abgastemperatur
+        description: Sensor der Abgastemperatur in °C.
+      druck:
+        name: Druckdifferenz
+        description: Sensor der Druckdifferenz. Dient als Lebenszeichen des Sniffers.
+      gradient:
+        name: Gradient
+        description: Temperaturgradient in K/min.
+      t_max_3min:
+        name: T max 3 min
+        description: Maximum der Abgastemperatur der letzten 3 Minuten.
+      tuer:
+        name: Tür offen
+        description: Binärsensor der Ofentür.
+      t_wt:
+        name: T.WT
+        description: Temperatur am Wärmetauscher in °C.
+      t_wt_anstieg:
+        name: T.WT Anstieg
+        description: Anstieg von T.WT in K je 10 Minuten.
+      puffer_unten:
+        name: Puffer unten
+        description: Temperatur unten im Pufferspeicher in °C.
+      wartung:
+        name: Wartung
+        description: Schalter für den Wartungsbetrieb.
+      handbetrieb:
+        name: Handbetrieb
+        description: Schalter für den Handbetrieb.
+      tuerkontakt_vorhanden:
+        name: Türkontakt vorhanden
+        description: Schalter, der angibt, ob ein Türkontakt eingebaut ist.
+      can_alter:
+        name: CAN-Alter
+        description: Optional. Sensor mit dem Alter des letzten CAN-Frames in Sekunden. Leer lassen, solange es ihn nicht gibt.

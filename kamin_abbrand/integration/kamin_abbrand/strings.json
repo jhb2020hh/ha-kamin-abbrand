@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kamin Abbrand verbinden",
+        "description": "Adresse und Token stehen in der App auf der Seite Service.",
+        "data": { "host": "Adresse", "port": "Port", "token": "Token" }
+      },
+      "hassio_confirm": {
+        "title": "Kamin Abbrand",
+        "description": "Die App Kamin Abbrand wurde gefunden. Soll sie als Gerät hinzugefügt werden?"
+      }
+    },
+    "error": {
+      "nicht_erreichbar": "Die App ist nicht erreichbar.",
+      "token_falsch": "Das Token stimmt nicht."
+    },
+    "abort": { "already_configured": "Kamin Abbrand ist bereits eingerichtet." }
+  }
+}

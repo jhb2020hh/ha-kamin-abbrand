@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kamin</title>
+<link rel="stylesheet" href="statik/app.css">
+</head>
+<body>
+<div class="rahmen">
+  <nav class="navi" aria-label="Seiten">
+    <div class="marke">Kamin</div>
+    <button data-seite="start">Start</button>
+    <button data-seite="verlauf">Verlauf</button>
+    <button data-seite="eingaenge">Ein-/Ausgänge</button>
+    <button data-seite="einstellungen">Einstellungen</button>
+    <button data-seite="regler">Regler</button>
+    <button data-seite="service">Service</button>
+  </nav>
+  <main>
+    <div class="banner" id="banner"><b>Beobachtungsbetrieb.</b> Die App rechnet mit und zeigt an. Die Klappe steuert weiter die Automation.</div>
+    <div id="inhalt"></div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="statik/app.js"></script>
+</body>
+</html>
