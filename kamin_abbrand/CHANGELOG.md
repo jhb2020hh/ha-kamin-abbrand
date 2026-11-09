@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- Neu: Karte Abbrand-Dauer auf der Startseite mit aktuellem und letztem Abbrand, Durchschnitt und Anzahl für heute und gesamt. Vorhandene Summen der Live-Automation werden einmalig übernommen.
+- Neu: Gradient, T-Maximum der Phase, Phasenbeginn, Lüftungsfreigabe (neue Rolle „Lüftung frei“) und Warnung „Klappe folgt nicht“ auf der Startseite.
+- Neu: Der Verlauf zeigt zusätzlich Wärmeleistung, Ziel, Klappe Ist und Wärmetauscher. Jede Linie lässt sich ein- und ausschalten.
+- Die Rolle „Klappe Iststellung“ akzeptiert jetzt auch Sensoren.
+
 ## 0.3.2
 
 - Behoben: Die Startseite zeigte nach der Wahl der Leistung weiter das Ziel der Automation statt des Ziels der App.

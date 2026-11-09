@@ -115,7 +115,24 @@ function startZeichnen(s) {
     wertKarte("Klappe", zahl(s.klappe_soll), "%", s.klappe_ist !== null ? `Iststellung ${zahl(s.klappe_ist)} %` : "Sollstellung", s.klappe_soll),
     s.zug !== null && wertKarte("Kaminzug", zahl(s.zug, 1), "Pa"),
     s.twt !== null && wertKarte("Wärmetauscher", zahl(s.twt, 1), "°C"),
-    s.puffer_unten !== null && wertKarte("Puffer unten", zahl(s.puffer_unten, 1), "°C"));
+    s.puffer_unten !== null && wertKarte("Puffer unten", zahl(s.puffer_unten, 1), "°C"),
+    s.gradient !== null && s.gradient !== undefined && wertKarte("Gradient", zahl(s.gradient, 1), "K/min", s.i_anteil !== null ? `I-Anteil ${zahl(s.i_anteil, 1)} %` : null),
+    s.feuer && s.t_maximum !== null && wertKarte("T-Maximum Phase", zahl(s.t_maximum), "°C", s.phase_seit !== null ? `Phase seit ${new Date(s.phase_seit * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr` : null));
+
+  const ad = s.abbrand_dauer;
+  const kennzahl = (titel, wert) => h("div", {}, h("div", { klasse: "etikett" }, titel), h("b", {}, wert));
+  const minuten = (m) => m === null || m === undefined ? "–" : dauer(m * 60);
+  const dauerKarte = ad && h("div", { klasse: "karte" }, h("h2", {}, "Abbrand-Dauer"),
+    h("div", { klasse: "vorschlag" },
+      kennzahl("Aktueller Abbrand", ad.aktuell_min === null ? "läuft nicht" : minuten(ad.aktuell_min)),
+      kennzahl("Letzter Abbrand", minuten(ad.letzte_min)),
+      kennzahl("Ø heute", minuten(ad.schnitt_heute_min)),
+      kennzahl("Abbrände heute", zahl(ad.anzahl_heute)),
+      kennzahl("Ø gesamt", minuten(ad.schnitt_gesamt_min)),
+      kennzahl("Abbrände gesamt", zahl(ad.anzahl_gesamt))),
+    h("p", { klasse: "leise" }, `Ein Abbrand endet unter ${zahl(ad.t_glut)} °C oder beim nächsten Nachlegen. Fehlstarts zählen nicht.`));
+  const klappeWarnung = s.klappe_folgt_nicht && h("div", { klasse: "karte", stil: "--farbe:var(--fehler)" }, h("h2", {}, "Klappe folgt nicht"),
+    h("p", {}, "Die Rückmeldung passt nicht zur Sollstellung. Bitte Antrieb, Verdrahtung und Rückmeldung prüfen."));
 
   const band = h("div", { klasse: "karte", stil: `--farbe:${f}` }, h("div", { klasse: "etikett" }, "Ablauf"),
     h("div", { klasse: "band" }, s.phasenband.map((p) => h("span", { klasse: p === s.phase ? "aktiv" : "" }, p))));
@@ -126,7 +143,8 @@ function startZeichnen(s) {
       h("div", { klasse: "modus", role: "group", "aria-label": "Leistung" }, ["Eco", "Normal", "Power"].map((m) => h("button", { type: "button", "aria-pressed": String(m === s.leistung), onclick: () => leistungWaehlen(m) }, m))),
       h("div", { klasse: "leise", stil: "margin-top:4px" }, `Ziel ${zahl(s.ziel)} °C`, s.leistung_eigen && s.leistung_live && s.leistung_live !== s.leistung ? ` · Automation läuft auf ${s.leistung_live}` : "", s.modus !== "betrieb" ? " · wirkt im Lauschen nicht auf den Ofen" : "")),
     h("div", {}, h("div", { klasse: "etikett" }, s.modus === "betrieb" ? "Die App steuert" : "Die App würde jetzt"), app ? h("div", {}, `${app.phase}, Klappe ${app.klappe} %`) : h("div", { klasse: "leise" }, "noch keine Berechnung")),
-    s.tuerkontakt_vorhanden && s.tuer_offen !== null && h("div", {}, h("div", { klasse: "etikett" }, "Tür"), h("div", {}, s.tuer_offen ? "offen" : "geschlossen"))));
+    s.tuerkontakt_vorhanden && s.tuer_offen !== null && h("div", {}, h("div", { klasse: "etikett" }, "Tür"), h("div", {}, s.tuer_offen ? "offen" : "geschlossen")),
+    s.lueftung_frei !== null && h("div", {}, h("div", { klasse: "etikett" }, "Lüftung"), h("div", {}, s.lueftung_frei ? "frei" : "gesperrt"))));
 
   const r = s.reinigung;
   const reinigung = r && (r.faellig || r.bald) && h("div", { klasse: "karte", stil: `--farbe:var(${r.faellig ? "--fehler" : "--nachlegen"})` },
@@ -155,22 +173,44 @@ function startZeichnen(s) {
   const einrichtung = s.einrichtung.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Einrichtung noch nicht fertig"),
     h("p", { klasse: "leise" }, `${s.einrichtung.length === 1 ? "Eine Angabe fehlt" : `${s.einrichtung.length} Angaben fehlen`} noch. Ofenart, Puffer und Wärmeerzeuger stehen unter Anlage, die Sensoren unter Ein-/Ausgänge.`),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "textknopf", onclick: () => gehe("anlage") }, "Zur Anlage"), " ", h("button", { klasse: "textknopf", onclick: () => gehe("eingaenge") }, "Zu den Ein-/Ausgängen")));
-  zeige(...[fehlt, einrichtung, wasser, reinigung, betriebKarte(s), karte, werte, band, unten].filter(Boolean));
+  zeige(...[fehlt, einrichtung, klappeWarnung, wasser, reinigung, betriebKarte(s), karte, werte, dauerKarte, band, unten].filter(Boolean));
 }
 
 // ---- Verlauf -----------------------------------------------------------
 let stunden = 3;
+const REIHEN = [
+  { k: "t", name: "Abgas", einheit: "°C", farbe: "--akzent", achse: "t", breite: 2.2 },
+  { k: "ziel", name: "Ziel", einheit: "°C", farbe: "--akzent", achse: "t", breite: 1.2, strich: "6 4" },
+  { k: "twt", name: "Wärmetauscher", einheit: "°C", farbe: "--ausbrand", achse: "t", breite: 1.4, stellen: 1 },
+  { k: "klappe", name: "Klappe Soll", einheit: "%", farbe: "--blau", achse: "k", breite: 1.6 },
+  { k: "klappe_ist", name: "Klappe Ist", einheit: "%", farbe: "--blau", achse: "k", breite: 1.2, strich: "3 3" },
+  { k: "zug", name: "Kaminzug", einheit: "Pa", farbe: "--ok", achse: "zug", breite: 1.2, stellen: 1 },
+  { k: "leistung", name: "Wärmeleistung", einheit: "kW", farbe: "--glut", achse: "kw", breite: 1.8, stellen: 1 },
+];
+const VERLAUF_AUS_KEY = "kamin.verlauf.aus";
+function verlaufAusLesen() {
+  try { const w = JSON.parse(localStorage.getItem(VERLAUF_AUS_KEY)); if (Array.isArray(w)) return new Set(w); } catch (_) { /* Speicher gesperrt */ }
+  return new Set(["twt"]);
+}
+function verlaufAusMerken() { try { localStorage.setItem(VERLAUF_AUS_KEY, JSON.stringify([...verlaufAus])); } catch (_) { /* Speicher gesperrt */ } }
+const verlaufAus = verlaufAusLesen();
+const reihenWerte = (d, k) => (d[k] || []).filter((v) => v !== null && v !== undefined);
+const reiheAn = (d, r) => !verlaufAus.has(r.k) && reihenWerte(d, r.k).length > 0;
+const zugGrenze = (d) => Math.max(10, ...reihenWerte(d, "zug"));
+const kwGrenze = (d) => Math.max(5, ...reihenWerte(d, "leistung"));
 function grafik(d) {
   const B = 860, H = 340, L = 44, R = 40, O = 12, U = 44;
   const breit = B - L - R, hoch = H - O - U;
   const n = d.zeit.length;
   if (n < 2) return h("p", { klasse: "leise" }, "Für diesen Zeitraum liegen noch keine Daten vor.");
   const z0 = d.zeit[0], z1 = d.zeit[n - 1], x = (z) => L + (z - z0) / Math.max(z1 - z0, 1) * breit;
-  const tMax = Math.max(100, ...d.t.filter((v) => v !== null)) * 1.08, yT = (v) => O + hoch - v / tMax * hoch, yK = (v) => O + hoch - v / 100 * hoch;
-  const zugWerte = d.zug.filter((v) => v !== null), zugMax = Math.max(10, ...zugWerte), yZ = (v) => O + hoch - v / zugMax * hoch;
+  const an = REIHEN.filter((r) => reiheAn(d, r));
+  const tMax = Math.max(100, ...an.filter((r) => r.achse === "t").flatMap((r) => reihenWerte(d, r.k))) * 1.08;
+  const skala = (grenze) => (v) => O + hoch - v / grenze * hoch;
+  const achsen = { t: skala(tMax), k: skala(100), zug: skala(zugGrenze(d)), kw: skala(kwGrenze(d)) };
   const NS = "http://www.w3.org/2000/svg";
   const s = (tag, a, text) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); if (text !== undefined) e.textContent = text; return e; };
-  const svg = s("svg", { viewBox: `0 0 ${B} ${H}`, role: "img", "aria-label": "Verlauf von Temperatur, Klappe und Kaminzug" });
+  const svg = s("svg", { viewBox: `0 0 ${B} ${H}`, role: "img", "aria-label": `Verlauf: ${an.map((r) => r.name).join(", ") || "keine Linie ausgewählt"}` });
   for (let i = 0; i <= 4; i++) {
     const y = O + hoch * i / 4;
     svg.append(s("line", { x1: L, x2: B - R, y1: y, y2: y, stroke: farbe("--grid") }));
@@ -184,30 +224,49 @@ function grafik(d) {
     svg.append(s("rect", { x: x(d.zeit[start]), y: O + hoch + 6, width: Math.max(x(d.zeit[Math.min(i, n - 1)]) - x(d.zeit[start]), 1), height: 10, fill: farbe(PHASE_FARBE[d.phase[start]] || "--standby") }));
     start = i;
   }
-  const linie = (reihe, y, f, breite) => { let p = "", neu = true; reihe.forEach((v, i) => { if (v === null || v === undefined) { neu = true; return; } p += `${neu ? "M" : "L"}${x(d.zeit[i]).toFixed(1)} ${y(v).toFixed(1)}`; neu = false; }); svg.append(s("path", { d: p, fill: "none", stroke: f, "stroke-width": breite, "stroke-linejoin": "round" })); };
-  if (zugWerte.length) linie(d.zug, yZ, farbe("--ok"), 1.2);
-  linie(d.klappe, yK, farbe("--blau"), 1.6);
-  linie(d.t, yT, farbe("--akzent"), 2.2);
+  const linie = (r) => {
+    const y = achsen[r.achse];
+    let p = "", neu = true;
+    d[r.k].forEach((v, i) => { if (v === null || v === undefined) { neu = true; return; } p += `${neu ? "M" : "L"}${x(d.zeit[i]).toFixed(1)} ${y(v).toFixed(1)}`; neu = false; });
+    const a = { d: p, fill: "none", stroke: farbe(r.farbe), "stroke-width": r.breite, "stroke-linejoin": "round" };
+    if (r.strich) a["stroke-dasharray"] = r.strich;
+    svg.append(s("path", a));
+  };
+  [...an].reverse().forEach(linie);
   const marke = s("line", { y1: O, y2: O + hoch, stroke: farbe("--muted"), visibility: "hidden" }); svg.append(marke);
   const tipp = h("div", { klasse: "tipp" }), rahmen = h("div", { klasse: "grafik" }, svg, tipp);
   svg.addEventListener("pointermove", (e) => {
     const r = svg.getBoundingClientRect(), mx = (e.clientX - r.left) / r.width * B, z = z0 + (mx - L) / breit * (z1 - z0);
     let i = d.zeit.findIndex((w) => w >= z); if (i < 0) i = n - 1;
     marke.setAttribute("x1", x(d.zeit[i])); marke.setAttribute("x2", x(d.zeit[i])); marke.setAttribute("visibility", "visible");
-    tipp.textContent = `${uhr(d.zeit[i])} · ${d.phase[i] || "–"} · ${zahl(d.t[i])} °C · Klappe ${zahl(d.klappe[i])} %` + (d.zug[i] !== null ? ` · ${zahl(d.zug[i], 1)} Pa` : "");
+    const teile = an.filter((q) => d[q.k][i] !== null && d[q.k][i] !== undefined).map((q) => `${q.name} ${zahl(d[q.k][i], q.stellen || 0)} ${q.einheit}`);
+    tipp.textContent = [uhr(d.zeit[i]), d.phase[i] || "–", ...teile].join(" · ");
     tipp.style.display = "block"; tipp.style.top = "6px"; tipp.style.left = `${Math.min(Math.max(e.clientX - r.left - tipp.offsetWidth / 2, 0), r.width - tipp.offsetWidth)}px`;
   });
   svg.addEventListener("pointerleave", () => { tipp.style.display = "none"; marke.setAttribute("visibility", "hidden"); });
   return rahmen;
 }
+function reihenTitel(d, r) {
+  if (r.achse === "zug") return `${r.name} (${r.einheit}, bis ${zahl(zugGrenze(d))})`;
+  if (r.achse === "kw") return `${r.name} (${r.einheit}, bis ${zahl(kwGrenze(d))})`;
+  return `${r.name} (${r.einheit})`;
+}
 async function verlaufZeichnen() {
-  const anzeige = h("b", {}, `${stunden} h`), flaeche = h("div", {}, h("p", { klasse: "leise" }, "Wird geladen …"));
-  const laden = async () => { try { flaeche.replaceChildren(grafik(await api(`api/verlauf?stunden=${stunden}`))); } catch (f) { flaeche.replaceChildren(h("p", {}, f.message)); } };
+  const anzeige = h("b", {}, `${stunden} h`), flaeche = h("div", {}, h("p", { klasse: "leise" }, "Wird geladen …")), legende = h("div", { klasse: "legende", role: "group", "aria-label": "Linien ein- und ausschalten" });
+  let daten = null;
+  const zeichnen = () => {
+    flaeche.replaceChildren(grafik(daten));
+    legende.replaceChildren(...REIHEN.map((r) => {
+      const leer = reihenWerte(daten, r.k).length === 0;
+      return h("button", { type: "button", stil: `--c:var(${r.farbe})`, disabled: leer, "aria-pressed": String(!leer && !verlaufAus.has(r.k)), title: leer ? "In diesem Zeitraum keine Daten" : "Ein- oder ausschalten",
+        onclick: () => { if (verlaufAus.has(r.k)) verlaufAus.delete(r.k); else verlaufAus.add(r.k); verlaufAusMerken(); zeichnen(); } }, h("i", {}), reihenTitel(daten, r));
+    }), h("span", {}, "Farbband: Phase"));
+  };
+  const laden = async () => { try { daten = await api(`api/verlauf?stunden=${stunden}`); zeichnen(); } catch (f) { flaeche.replaceChildren(h("p", {}, f.message)); } };
   zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Verlauf")),
     h("div", { klasse: "karte" }, h("div", { klasse: "zeile" }, h("span", {}, "Zeitraum"), anzeige),
       h("input", { type: "range", min: 1, max: 12, step: 1, value: stunden, "aria-label": "Zeitraum in Stunden", oninput: (e) => { stunden = +e.target.value; anzeige.textContent = `${stunden} h`; }, onchange: laden })),
-    h("div", { klasse: "karte" }, flaeche, h("div", { klasse: "legende" },
-      [["--akzent", "Abgas (°C, links)"], ["--blau", "Klappe (%, rechts)"], ["--ok", "Kaminzug (skaliert)"]].map(([c, t]) => h("span", { stil: `--c:var(${c})` }, h("i"), t)), h("span", {}, "Farbband: Phase"))));
+    h("div", { klasse: "karte" }, flaeche, legende));
   laden();
 }
 

@@ -75,10 +75,12 @@ ROLLEN: tuple[Rolle, ...] = (
           ("sensor",), einheit="°C", fahrenheit=True),
     Rolle("druck", "Kaminzug", "Differenzdruck am Schornstein. Dient auch als Lebenszeichen des Fühlers.",
           ("sensor",)),
+    Rolle("lueftung", "Lüftung frei", "Freigabe der Lüftung, zum Beispiel vom Unterdruckwächter. Wird nur angezeigt.",
+          ("binary_sensor",)),
     Rolle("can_alter", "Alter des Fühlersignals", "Sekunden seit dem letzten Datenpaket vom Fühler.",
           ("sensor",), einheit="s"),
     Rolle("klappe_ist", "Klappe Iststellung", "Rückmeldung, wie weit die Klappe wirklich offen ist. Im Betrieb meldet eine Abweichung eine Störung.",
-          _STELLGLIED),
+          (*_STELLGLIED, "sensor")),
     Rolle("wartung", "Wartung", "Schalter für den Wartungsbetrieb.", ("input_boolean", "switch")),
     Rolle("handbetrieb", "Handbetrieb", "Schalter, mit dem die Klappe von Hand gestellt wird.",
           ("input_boolean", "switch")),
@@ -101,7 +103,7 @@ ROLLEN_NACH_NAME = {r.schluessel: r for r in ROLLEN}
 _EINGANG_FELDER = ("abgas", "druck", "gradient", "t_max_3min", "tuer", "t_wt", "t_wt_anstieg",
                    "puffer_unten", "wartung", "handbetrieb", "can_alter")
 # Für Auswertungen mitgelesen, der Kern bekommt sie nicht.
-ZUSATZ_ROLLEN = ("vorlauf", "ruecklauf", "pumpe", "puffer_oben", "waermezaehler", "waermeleistung", "energiezaehler", "t_aussen")
+ZUSATZ_ROLLEN = ("vorlauf", "ruecklauf", "pumpe", "puffer_oben", "waermezaehler", "waermeleistung", "energiezaehler", "t_aussen", "lueftung")
 
 
 @dataclass(frozen=True)
@@ -249,6 +251,7 @@ class Speicher:
         daten.setdefault("tuerkontakt_vorhanden", True)
         daten.setdefault("parameter_neu", {})
         daten.setdefault("betrieb_s", 0.0)
+        daten.setdefault("abbrand_dauer", {})
         daten.setdefault("benachrichtigungen", {})
         if not isinstance(daten.get("wasser_grenzen"), dict):
             daten["wasser_grenzen"] = {}

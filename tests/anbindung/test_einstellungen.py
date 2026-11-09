@@ -15,7 +15,10 @@ from anbindung.ha_client import _ERLAUBTE_WS_BEFEHLE, HaClient
 from anbindung.main import App, steuerung_aus_kern
 from anbindung.schatten import Verlauf
 from fake_ha import TOKEN, FakeHa, warte_auf
-from kern.typen import NEU, PARITAET, STANDBY
+from anbindung.ansicht import verlauf_lesen
+from datetime import date
+import time
+from kern.typen import ABBRAND, GLUT, NEU, PARITAET, STANDBY, Zustand
 
 ALT = {"entitaeten": {"abgas": "sensor.alt_t", "tuer": "binary_sensor.alt", "fremd": "x.y", "can_alter": ""}}
 FIXTUR = Path(__file__).parents[1] / "fixtures" / "ableitung_2026-11-08.json"
@@ -179,9 +182,62 @@ def test_zusatz_liest_neue_rollen_und_erzeugerzaehler_nur_passend_zum_profil(tmp
     s.rollen_setzen({"abgas": "sensor.a", "vorlauf": "sensor.v", "t_aussen": "sensor.ta", "klappe_ist": "cover.k"}, True)
     s.profil_setzen({"ofen": "wassergefuehrt", "erzeuger": [{"art": "erdgas", "zaehler": "sensor.gas", "zaehler_einheit": "m³"}]})
     app = _app_ohne_verbindung(tmp_path, s)
-    assert set(app.zusatz_entitaeten()) == {"sensor.v", "sensor.ta", "cover.k", "sensor.gas"}
+    helfer = set(app._dauer_helfer())
+    assert set(app.zusatz_entitaeten()) == {"sensor.v", "sensor.ta", "cover.k", "sensor.gas"} | helfer
     s.profil_setzen({"ofen": "luftgefuehrt", "erzeuger": []})
-    assert set(app.zusatz_entitaeten()) == {"sensor.ta", "cover.k"}
+    assert set(app.zusatz_entitaeten()) == {"sensor.ta", "cover.k"} | helfer
+
+
+def _zustaende(werte):
+    return [{"entity_id": eid, "state": str(w), "attributes": a, "last_changed": "2026-11-09T20:00:00+00:00"}
+            for eid, (w, a) in werte.items()]
+
+
+def test_laufzeiten_werden_einmalig_aus_den_live_helfern_uebernommen(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    s.rollen_setzen({"abgas": "sensor.a"}, True)
+    app = _app_ohne_verbindung(tmp_path, s)
+    app.eingaenge.tauschen(s.entitaeten(), app.zusatz_entitaeten(), _zustaende({
+        "counter.kamin_abbrand_anzahl_gesamt": (102, {}), "counter.kamin_abbrand_anzahl_heute": (7, {}),
+        "input_number.kamin_abbrand_dauer_summe_gesamt": (4932.0, {}), "input_number.kamin_abbrand_dauer_summe_heute": (294.0, {}),
+        "input_number.kamin_abbrand_dauer_letzte": (20.5, {}), "input_boolean.kamin_abbrand_dauer_lauft": ("on", {}),
+        "input_datetime.kamin_abbrand_dauer_start": ("x", {"timestamp": 1000.0}),
+    }), 2000.0)
+    app._dauer_verfolgen(Zustand(phase=ABBRAND, phase_seit=1200.0), 2000.0)
+    assert app.dauer.anzahl_gesamt == 102 and app.dauer.letzte_min == 20.5 and app.dauer.laeuft and app.dauer.start == 1000.0
+    assert s.daten["abbrand_dauer"]["anzahl_gesamt"] == 102
+    app._dauer_verfolgen(Zustand(phase=GLUT, phase_seit=2600.0), 2600.0)
+    assert app.dauer.anzahl_gesamt == 103 and app.dauer.letzte_min == 26.7
+    neu = _app_ohne_verbindung(tmp_path, Speicher(tmp_path / "e.json"))
+    neu._dauer_verfolgen(Zustand(phase=GLUT, phase_seit=2600.0), 2700.0)
+    assert neu.dauer.anzahl_gesamt == 103
+
+
+def test_ohne_live_helfer_beginnt_die_statistik_bei_null(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    s.rollen_setzen({"abgas": "sensor.a"}, True)
+    app = _app_ohne_verbindung(tmp_path, s)
+    app._dauer_verfolgen(Zustand(phase=STANDBY, phase_seit=0.0), 100.0)
+    assert app.dauer.anzahl_gesamt == 0 and not app.dauer.vorbelegt
+
+
+def test_verlauf_liefert_leistung_ziel_und_klappe_ist(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    s.rollen_setzen({"abgas": "sensor.a", "waermeleistung": "sensor.w", "klappe_ist": "sensor.ist"}, True)
+    s.profil_setzen({"ofen": "wassergefuehrt", "erzeuger": []})
+    app = _app_ohne_verbindung(tmp_path, s)
+    app.eingaenge.tauschen(s.entitaeten(), app.zusatz_entitaeten(), _zustaende({
+        "sensor.w": (1700, {"unit_of_measurement": "W"}), "sensor.ist": (17, {}),
+    }), 2000.0)
+    a = app._anzeige()
+    assert a["leistung_kw"] == 1.7 and a["klappe_ist"] == 17.0 and a["ziel"] == app.eingaenge.parameter.t_ziel
+    jetzt = time.time()
+    tag = date.fromtimestamp(jetzt).isoformat()
+    (tmp_path / f"verlauf-{tag}.jsonl").write_text(
+        json.dumps({"regelstand": "paritaet", "eingaben": {"jetzt": jetzt - 10, "t": 200.0, "twt_roh": 60.0}, "anzeige": a,
+                    "live": {"klappe_soll": 40, "phase": "Abbrand"}}) + "\n", encoding="utf-8")
+    d = verlauf_lesen(tmp_path, 1, jetzt)
+    assert d["leistung"] == [1.7] and d["ziel"] == [a["ziel"]] and d["klappe_ist"] == [17.0] and d["twt"] == [60.0]
 
 
 def test_ableitung_gegen_echte_werte():

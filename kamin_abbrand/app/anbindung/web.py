@@ -39,7 +39,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 

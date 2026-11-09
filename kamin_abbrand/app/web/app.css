@@ -124,6 +124,10 @@ code { font-size: .85em; word-break: break-all }
 .tipp { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: .8rem; white-space: nowrap; font-variant-numeric: tabular-nums; display: none }
 .legende { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .82rem; color: var(--muted); margin-top: 8px }
 .legende i { display: inline-block; width: 12px; height: 3px; margin-right: 5px; vertical-align: 3px; background: var(--c) }
+.legende button { font: inherit; color: inherit; background: none; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; cursor: pointer }
+.legende button[aria-pressed="false"] { opacity: .55; text-decoration: line-through }
+.legende button:disabled { opacity: .4; cursor: default; text-decoration: none }
+.legende span { align-self: center }
 
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 6px; opacity: 0; transition: .2s; pointer-events: none; max-width: calc(100vw - 32px) }
 .toast.zeigen { opacity: 1; transform: translate(-50%, 0) }

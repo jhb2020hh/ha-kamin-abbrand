@@ -11,7 +11,7 @@ from anbindung.anlagenprofil import AMORTISATION, KOSTEN, fehlende_angaben
 from anbindung.betrieb import offene_punkte
 from anbindung.buchfuehrung import EINSTELLUNGEN, SALDO, VORGABEN
 from anbindung.einstellungen import AUSGANG, ROLLEN
-from kern import wartung, wirtschaft
+from kern import abbrand_dauer, wartung, wirtschaft
 from kern.wirtschaft import leistung_nach_kw
 from kern.autotune import Probe
 from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, NEU, PARITAET,
@@ -242,6 +242,11 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "twt": ein.zahl(_rolle(app, "t_wt")),
         "puffer_unten": puffer,
         "gradient": app.letzte_eingaben.g if app.letzte_eingaben else None,
+        "t_maximum": z.t_maximum if z else None,
+        "phase_seit": z.phase_seit if z else None,
+        "abbrand_dauer": _dauer_zeigen(app, jetzt, p.t_glut),
+        "lueftung_frei": {"on": True, "off": False}.get(ein.wert(_rolle(app, "lueftung"))),
+        "klappe_folgt_nicht": _klappe_folgt_nicht(app),
         "i_anteil": z.i_anteil if z else None,
         "tuer_offen": {"on": True, "off": False}.get(ein.wert(tuer_eid)),
         "tuerkontakt_vorhanden": app.tuerkontakt_vorhanden(),
@@ -269,6 +274,18 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "wasser": wasser_zeigen(app),
         "fehler": dict(app._fehler),
     }
+
+
+def _dauer_zeigen(app: Any, jetzt: float, t_glut: float) -> Optional[dict]:
+    stand = getattr(app, "dauer", None)
+    return None if stand is None else abbrand_dauer.anzeige(stand, jetzt) | {"t_glut": t_glut}
+
+
+def _klappe_folgt_nicht(app: Any) -> bool:
+    """Im Betrieb prüft die App selbst, im Lauschen meldet es die Live-Automation."""
+    if app.im_betrieb:
+        return bool(app.ausgaenge.stoerung_abweichung)
+    return app.eingaenge.wert(f"input_boolean.{app.eingaenge.praefix}_klappe_stoerung") == "on"
 
 
 def _kurz(stand: Any) -> Optional[dict]:
@@ -313,14 +330,20 @@ def verlauf_lesen(ordner: Path, stunden: float, jetzt: Optional[float] = None, m
     jetzt = time.time() if jetzt is None else jetzt
     zeilen = list(_zeilen(ordner, jetzt - stunden * 3600.0, jetzt))
     schritt = max(1, len(zeilen) // max_punkte)
-    ergebnis: dict[str, list] = {"zeit": [], "t": [], "klappe": [], "zug": [], "phase": []}
+    ergebnis: dict[str, list] = {"zeit": [], "t": [], "ziel": [], "twt": [], "klappe": [], "klappe_ist": [],
+                                 "zug": [], "leistung": [], "phase": []}
     for zeile in zeilen[::schritt]:
         live = zeile.get("live") or {}
         lauf = (zeile.get("ergebnis") or {}).get("zustand") or {}
+        anzeige = zeile.get("anzeige") or {}
         ergebnis["zeit"].append(zeile["eingaben"]["jetzt"])
         ergebnis["t"].append(zeile["eingaben"].get("t"))
+        ergebnis["ziel"].append(anzeige.get("ziel"))
+        ergebnis["twt"].append(zeile["eingaben"].get("twt_roh"))
         ergebnis["klappe"].append(live.get("klappe_soll", lauf.get("klappe_soll")))
-        ergebnis["zug"].append((zeile.get("anzeige") or {}).get("druck"))
+        ergebnis["klappe_ist"].append(anzeige.get("klappe_ist"))
+        ergebnis["zug"].append(anzeige.get("druck"))
+        ergebnis["leistung"].append(anzeige.get("leistung_kw"))
         ergebnis["phase"].append(live.get("phase", lauf.get("phase")))
     return ergebnis
 

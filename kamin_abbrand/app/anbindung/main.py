@@ -10,6 +10,7 @@ import asyncio
 import dataclasses
 import json
 from collections import deque
+from datetime import datetime
 import logging
 import math
 import os
@@ -42,7 +43,8 @@ from anbindung.schatten import (
 from anbindung.web import Webserver
 from kern import wartung
 from kern import wasser as kern_wasser
-from kern.wirtschaft import energie_nach_kwh
+from kern import abbrand_dauer
+from kern.wirtschaft import energie_nach_kwh, leistung_nach_kw
 from kern.phasen import TITEL_ANHEIZFEHLER, TITEL_STOERUNG
 from kern.signale import t_gueltig
 from kern.typen import (ABBRAND, ANHEIZEN, AUSBRAND, GLUT, NEU, PARITAET, SENSOR_WEG, STANDBY, TICK,
@@ -118,6 +120,7 @@ class App:
         self.eingaenge = eingaenge
         self.speicher = speicher
         self.parameter_neu = dataclasses.replace(eingaenge.parameter)
+        self.dauer: Optional[abbrand_dauer.DauerStand] = None
         self.start_zeit = uhr()
         self.letzte: dict[str, tuple[Any, float]] = {}
         self.letzte_eingaben: Any = None
@@ -301,7 +304,16 @@ class App:
                   and (rolle.art == AUSGANG or rolle.schluessel == "klappe_ist"
                        or rolle.schluessel == "konkurrierende_automation"
                        or (rolle.schluessel in ZUSATZ_ROLLEN and rolle_passt(rolle.schluessel, profil)))]
-        return rollen + zaehler_entitaeten(profil)
+        return rollen + zaehler_entitaeten(profil) + self._dauer_helfer()
+
+    def _dauer_helfer(self) -> list[str]:
+        """Helfer der Live-Automation, aus denen die bisherigen Laufzeiten einmalig übernommen werden."""
+        p = self.eingaenge.praefix
+        return [f"counter.{p}_anzahl_gesamt", f"counter.{p}_anzahl_heute",
+                f"input_number.{p}_dauer_summe_gesamt", f"input_number.{p}_dauer_summe_heute",
+                f"input_number.{p}_dauer_letzte", f"input_boolean.{p}_dauer_lauft",
+                f"input_datetime.{p}_dauer_start", f"input_datetime.{p}_dauer_kandidat",
+                f"input_boolean.{p}_klappe_stoerung"]
 
     def zuweisung_uebernehmen(self) -> None:
         """Wirkt ohne App-Neustart, der Wechsel läuft zwischen zwei Läufen."""
@@ -368,6 +380,8 @@ class App:
                 continue
             self._fehler.pop(regelstand, None)
             live = self._wirklicher_zustand(jetzt)
+            if regelstand == self.fuehrender_regelstand:
+                self._dauer_verfolgen(live or ergebnis.zustand, jetzt)
             self.verlauf.schreiben(regelstand, eingaben, ergebnis, live=live,
                                    anzeige=self._anzeige())
             self.letzte[regelstand] = (ergebnis, jetzt)
@@ -697,8 +711,63 @@ class App:
         if self.speicher is None:
             return None
         rollen = self.speicher.rollen
+        parameter = self.parameter_neu if self._betrieb else self.eingaenge.parameter
         return {"druck": self.eingaenge.zahl(rollen.get("druck")),
-                "klappe_ist": self.eingaenge.stellung(rollen.get("klappe_ist"))}
+                "klappe_ist": self.eingaenge.stellung(rollen.get("klappe_ist")),
+                "ziel": parameter.t_ziel,
+                "leistung_kw": self._leistung_kw()}
+
+    def _leistung_kw(self) -> Optional[float]:
+        eid = self.speicher.rollen.get("waermeleistung")
+        if not eid or not rolle_passt("waermeleistung", self.speicher.anlagenprofil):
+            return None
+        eintrag = self.eingaenge.eintrag(eid)
+        if eintrag is None:
+            return None
+        return leistung_nach_kw(als_zahl(eintrag.zustand), eintrag.attribute.get("unit_of_measurement"))
+
+    def _dauer_vorbelegen(self, s: abbrand_dauer.DauerStand, tag: str) -> None:
+        """Übernimmt einmalig die Summen der Live-Automation, damit die Statistik nicht bei null beginnt."""
+        ein, p = self.eingaenge, self.eingaenge.praefix
+        anzahl = ein.zahl(f"counter.{p}_anzahl_gesamt")
+        if anzahl is None or s.vorbelegt or s.anzahl_gesamt:
+            return
+
+        def zahl(eid: str) -> float:
+            wert = ein.zahl(eid)
+            return 0.0 if wert is None else wert
+
+        def zeitpunkt(eid: str) -> float:
+            eintrag = ein.eintrag(eid)
+            return (als_zahl(eintrag.attribute.get("timestamp")) or 0.0) if eintrag else 0.0
+
+        s.vorbelegt = True
+        s.tag = tag
+        s.anzahl_gesamt = int(anzahl)
+        s.summe_gesamt_min = zahl(f"input_number.{p}_dauer_summe_gesamt")
+        s.anzahl_heute = int(zahl(f"counter.{p}_anzahl_heute"))
+        s.summe_heute_min = zahl(f"input_number.{p}_dauer_summe_heute")
+        s.letzte_min = ein.zahl(f"input_number.{p}_dauer_letzte")
+        s.start = zeitpunkt(f"input_datetime.{p}_dauer_start")
+        s.kandidat = zeitpunkt(f"input_datetime.{p}_dauer_kandidat")
+        s.laeuft = ein.wert(f"input_boolean.{p}_dauer_lauft") == "on"
+        log.info("Laufzeiten übernommen: %d Abbrände, %.1f min", s.anzahl_gesamt, s.summe_gesamt_min)
+
+    def _dauer_verfolgen(self, zustand: Any, jetzt: float) -> None:
+        """Eine reine Anzeige: Ein Fehler hier darf die Regelung nie stören."""
+        if self.speicher is None:
+            return
+        try:
+            if self.dauer is None:
+                self.dauer = abbrand_dauer.aus_daten(self.speicher.daten.get("abbrand_dauer"))
+            s, tag = self.dauer, datetime.fromtimestamp(jetzt).date().isoformat()
+            vorher = s.vorbelegt
+            self._dauer_vorbelegen(s, tag)
+            if abbrand_dauer.fortschreiben(s, zustand.phase, zustand.phase_seit, jetzt, tag) or s.vorbelegt != vorher:
+                self.speicher.daten["abbrand_dauer"] = s.als_dict()
+                self.speicher.speichern()
+        except Exception:
+            log.exception("Laufzeiten nicht erfasst")
 
     def _betrieb_zaehlen(self, zustand: Any, jetzt: float) -> None:
         if self.speicher is None or zustand.phase not in _BETRIEB_PHASEN:
