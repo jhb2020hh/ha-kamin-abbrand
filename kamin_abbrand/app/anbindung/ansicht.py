@@ -235,7 +235,7 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "fortschritt": fortschritt,
         "seit_s": max(0, jetzt - z.phase_seit) if z else None,
         "abgas": t,
-        "ziel": p.t_ziel,
+        "ziel": app.speicher.parameter_neu.get("t_ziel", p.t_ziel),
         "klappe_soll": gesendet if gesendet is not None else (z.klappe_soll if z else None),
         "klappe_ist": ein.stellung(_rolle(app, "klappe_ist")),
         "zug": ein.zahl(_rolle(app, "druck")),

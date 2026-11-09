@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Behoben: Die Startseite zeigte nach der Wahl der Leistung weiter das Ziel der Automation statt des Ziels der App.
+
 ## 0.3.1
 
 - Neu: Knöpfe Eco, Normal und Power auf der Startseite, Zieltemperatur je Stufe unter Einstellungen → Parameter. Die Stufe gilt für die App, die Live-Automation in Home Assistant bleibt unberührt.

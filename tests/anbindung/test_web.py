@@ -722,6 +722,7 @@ def test_leistung_setzt_nur_das_ziel_der_app():
         assert app.speicher.leistung == "Power" and app.speicher.parameter_neu["t_ziel"] == 270
         s = await (await ober.get("/api/status")).json()
         assert s["leistung"] == "Power" and s["leistung_live"] == "Normal" and s["leistung_eigen"] is True
+        assert s["ziel"] == 270
         assert all("kamin_app" in pf for _, pf, _ in ha.rest_anfragen[vorher:])
 
         assert (await ober.post("/api/leistung", json={"modus": "Turbo"})).status == 400
