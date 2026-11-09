@@ -123,7 +123,10 @@ def _f(name: str, titel: str, hilfe: str, minimum: float, maximum: float, schrit
 REINIGUNG_FELD = "wt_reinigung_h"
 # Grenzen der Wasserseite, Vorgaben stehen in kern/wasser.py (Grenzen).
 WASSER_FELDER = ("wasser_ruecklauf_min", "wasser_vorlauf_warnung", "wasser_vorlauf_alarm", "wasser_pumpe_t_wt")
-EIGENE_FELDER = (REINIGUNG_FELD, *WASSER_FELDER)
+# Leistungsstufen der App: Zieltemperatur je Stufe. Die Live-Automation hat eigene Helfer und bleibt unberührt.
+LEISTUNG_FELDER = {"Eco": "t_ziel_eco", "Normal": "t_ziel_normal", "Power": "t_ziel_power"}
+LEISTUNG_VORGABE = {"t_ziel_eco": 220.0, "t_ziel_normal": 250.0, "t_ziel_power": 270.0}
+EIGENE_FELDER = (REINIGUNG_FELD, *WASSER_FELDER, *LEISTUNG_VORGABE)
 _WASSER_VORGABE = {"wasser_ruecklauf_min": "ruecklauf_min", "wasser_vorlauf_warnung": "vorlauf_warnung",
                    "wasser_vorlauf_alarm": "vorlauf_alarm", "wasser_pumpe_t_wt": "pumpe_t_wt"}
 
@@ -141,7 +144,10 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
         _f("t_kalt", "Ofen gilt als kalt unter", "Darunter darf die Klappe ganz schließen.", 20, 100, 5, "°C"),
     )),
     ("Abbrand", (
-        _f("t_ziel", "Zieltemperatur", "Auf diesen Wert regelt die App die Abgastemperatur.", 120, 500, 5, "°C"),
+        _f("t_ziel", "Zieltemperatur", "Auf diesen Wert regelt die App die Abgastemperatur. Die Leistungsknöpfe auf der Startseite setzen ihn neu.", 120, 500, 5, "°C"),
+        _f("t_ziel_eco", "Ziel bei Eco", "Zieltemperatur für die Leistung Eco.", 120, 500, 5, "°C"),
+        _f("t_ziel_normal", "Ziel bei Normal", "Zieltemperatur für die Leistung Normal.", 120, 500, 5, "°C"),
+        _f("t_ziel_power", "Ziel bei Power", "Zieltemperatur für die Leistung Power.", 120, 500, 5, "°C"),
         _f("klappe_min_abbrand", "Klappe mindestens", "Weiter schließt die Klappe im Abbrand nicht.", 5, 100, 5, "%"),
         _f("klappe_max_abbrand", "Klappe höchstens", "Weiter öffnet die Klappe im Abbrand nicht.", 20, 100, 5, "%"),
         _f("klappe_min_entgasung", "Klappe mindestens beim Entgasen", "In den ersten Minuten braucht das Holz mehr Luft.", 5, 100, 5, "%"),
@@ -246,6 +252,8 @@ class Speicher:
         daten.setdefault("benachrichtigungen", {})
         if not isinstance(daten.get("wasser_grenzen"), dict):
             daten["wasser_grenzen"] = {}
+        if not isinstance(daten.get("leistung"), dict):
+            daten["leistung"] = {}
         if not isinstance(daten.get("wartung"), dict):
             # Die Zählung beginnt bei der Installation dieser Funktion.
             daten["wartung"] = {"basis_s": float(daten["betrieb_s"]), "letzte_reinigung": None, "erinnert": None}
@@ -317,6 +325,8 @@ class Speicher:
         """Der eigene Wert eines Feldes, das nur die App kennt, oder None (dann gilt die Vorgabe)."""
         if name == REINIGUNG_FELD:
             return als_zahl(self.daten["wartung"].get("intervall_h"))
+        if name in LEISTUNG_VORGABE:
+            return als_zahl(self.daten["leistung"].get(name))
         return als_zahl(self.daten["wasser_grenzen"].get(name))
 
     def wirksamer_eigener_wert(self, name: str) -> float:
@@ -326,7 +336,33 @@ class Speicher:
         eigen = self.eigener_wert(name)
         if eigen is not None:
             return eigen
+        if name in LEISTUNG_VORGABE:
+            return LEISTUNG_VORGABE[name]
         return getattr(wasser.Grenzen(), _WASSER_VORGABE[name])
+
+    @property
+    def leistung(self) -> Optional[str]:
+        """Die in der App gewählte Leistung, oder None, solange keine gewählt wurde."""
+        modus = self.daten["leistung"].get("modus")
+        return modus if isinstance(modus, str) and modus in LEISTUNG_FELDER else None
+
+    def leistung_setzen(self, modus: Any) -> float:
+        """Wählt die Leistung und setzt das Ziel der App. Schreibt nichts nach Home Assistant."""
+        if not isinstance(modus, str) or modus not in LEISTUNG_FELDER:
+            raise EinstellungsFehler("Diese Leistung gibt es nicht.")
+        ziel = self.wirksamer_eigener_wert(LEISTUNG_FELDER[modus])
+        self.daten["leistung"]["modus"] = modus
+        self.parameter_neu["t_ziel"] = ziel
+        self.speichern()
+        return ziel
+
+    def _leistung_nachfuehren(self, name: str) -> None:
+        """Das Ziel folgt der aktiven Stufe. Nimmt jemand das eigene Ziel zurück, ist auch keine Stufe mehr gewählt."""
+        modus = self.leistung
+        if name == "t_ziel" and "t_ziel" not in self.parameter_neu:
+            self.daten["leistung"].pop("modus", None)
+        elif modus and name == LEISTUNG_FELDER[modus]:
+            self.parameter_neu["t_ziel"] = self.wirksamer_eigener_wert(name)
 
     def wasser_grenzen(self, t_wasser_max: float, puffer_voll: float) -> wasser.Grenzen:
         """Vorgaben, überschrieben von den eigenen Werten. Wasser max. und Puffer voll sind Parameter des Kerns."""
@@ -418,10 +454,12 @@ class Speicher:
         if feld is None or (name not in Parameter.feldnamen() and name not in EIGENE_FELDER):
             raise EinstellungsFehler(f"Unbekannter Wert: {name}")
         ziel = (self.daten["wartung"] if name == REINIGUNG_FELD else
-                self.daten["wasser_grenzen"] if name in WASSER_FELDER else self.parameter_neu)
+                self.daten["wasser_grenzen"] if name in WASSER_FELDER else
+                self.daten["leistung"] if name in LEISTUNG_VORGABE else self.parameter_neu)
         schluessel = "intervall_h" if name == REINIGUNG_FELD else name
         if wert is None:
             ziel.pop(schluessel, None)
+            self._leistung_nachfuehren(name)
             self.speichern()
             return None
         zahl = als_zahl(wert)
@@ -431,6 +469,7 @@ class Speicher:
             raise EinstellungsFehler(
                 f"{feld.titel}: Erlaubt sind {feld.minimum:g} bis {feld.maximum:g} {feld.einheit}.")
         ziel[schluessel] = zahl
+        self._leistung_nachfuehren(name)
         self.speichern()
         return zahl
 

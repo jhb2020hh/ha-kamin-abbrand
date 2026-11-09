@@ -346,7 +346,7 @@ def test_integration_im_lauschen():
     async def p(_, integ, app, ha, __):
         k = {"Authorization": f"Bearer {app.speicher.token}"}
         vorher = len(ha.rest_anfragen)
-        for name in ("handbetrieb", "wartung", "leistung", "klappe_manuell", "t_ziel", "fuehler_neustart"):
+        for name in ("handbetrieb", "wartung", "klappe_manuell", "t_ziel", "fuehler_neustart"):
             r = await integ.post("/integration/befehl", json={"name": name, "wert": 1}, headers=k)
             assert r.status == 409 and "Lauschen" in (await r.json())["fehler"]
         assert all("kamin_app" in pf for _, pf, _ in ha.rest_anfragen[vorher:])
@@ -649,7 +649,7 @@ def test_integration_im_betrieb():
 
         r = await integ.post("/integration/befehl", json={"name": "fuehler_neustart"}, headers=k)
         assert r.status == 409 and "kein Ausgang" in (await r.json())["fehler"]
-        for name in ("handbetrieb", "wartung", "leistung"):
+        for name in ("handbetrieb", "wartung"):
             r = await integ.post("/integration/befehl", json={"name": name, "wert": True}, headers=k)
             assert r.status == 409 and "Home Assistant" in (await r.json())["fehler"]
         r = await integ.post("/integration/befehl", json={"name": "autotune_aktiv"}, headers=k)
@@ -694,3 +694,63 @@ def test_neue_installation_startet_im_lauschen():
         kaputt.write_text('{"modus": "steuern", "betrieb_bestaetigung": 5}', encoding="utf-8")
         s = Speicher(kaputt)
         assert s.modus == "lauschen" and s.bestaetigt is False
+
+
+def test_seite_laedt_js_und_css_mit_version_und_ohne_cache():
+    async def p(ober, *_):
+        r = await ober.get("/")
+        seite = await r.text()
+        assert r.headers["Cache-Control"] == "no-cache"
+        assert f'statik/app.js?v={VERSION}"' in seite and f'statik/app.css?v={VERSION}"' in seite
+        for datei in ("app.js", "app.css"):
+            r = await ober.get(f"/statik/{datei}?v={VERSION}")
+            assert r.status == 200 and r.headers["Cache-Control"] == "no-cache"
+    mit_web(p)
+
+
+def test_leistung_setzt_nur_das_ziel_der_app():
+    async def p(ober, integ, app, ha, __):
+        ha.setzen("input_select.kamin_abbrand_leistungsmodus", "Normal")
+        await warte_auf(lambda: app.eingaenge.wert("input_select.kamin_abbrand_leistungsmodus") == "Normal")
+        vorher = len(ha.rest_anfragen)
+        assert not app.im_betrieb
+        s = await (await ober.get("/api/status")).json()
+        assert s["leistung"] == "Normal" and s["leistung_live"] == "Normal" and s["leistung_eigen"] is False
+
+        r = await ober.post("/api/leistung", json={"modus": "Power"})
+        assert r.status == 200 and (await r.json())["ziel"] == 270
+        assert app.speicher.leistung == "Power" and app.speicher.parameter_neu["t_ziel"] == 270
+        s = await (await ober.get("/api/status")).json()
+        assert s["leistung"] == "Power" and s["leistung_live"] == "Normal" and s["leistung_eigen"] is True
+        assert all("kamin_app" in pf for _, pf, _ in ha.rest_anfragen[vorher:])
+
+        assert (await ober.post("/api/leistung", json={"modus": "Turbo"})).status == 400
+        assert (await ober.post("/api/leistung", json={"modus": ["Eco"]})).status == 400
+        k = {"Authorization": f"Bearer {app.speicher.token}"}
+        assert (await integ.post("/integration/befehl", json={"name": "leistung", "wert": "Eco"}, headers=k)).status == 200
+        assert app.speicher.parameter_neu["t_ziel"] == 220
+    mit_web(p)
+
+
+def test_ziel_folgt_der_aktiven_stufe_und_ruecknahme_beendet_sie():
+    async def p(ober, _, app, __, ___):
+        await ober.post("/api/leistung", json={"modus": "Eco"})
+        await ober.post("/api/parameter", json={"name": "t_ziel_eco", "wert": 200})
+        assert app.speicher.parameter_neu["t_ziel"] == 200
+        await ober.post("/api/parameter", json={"name": "t_ziel_power", "wert": 300})
+        assert app.speicher.parameter_neu["t_ziel"] == 200
+        await ober.post("/api/parameter", json={"name": "t_ziel_eco", "wert": None})
+        assert app.speicher.parameter_neu["t_ziel"] == 220
+        await ober.post("/api/parameter", json={"name": "t_ziel", "wert": None})
+        assert app.speicher.leistung is None and "t_ziel" not in app.speicher.parameter_neu
+    mit_web(p)
+
+
+def test_startseite_nennt_fehlende_angaben_ohne_kosten():
+    async def p(ober, _, app, __, ___):
+        s = await (await ober.get("/api/status")).json()
+        assert all(x["bereich"] != "Kosten" for x in s["einrichtung"])
+        app.speicher.rollen_setzen({}, True)
+        s = await (await ober.get("/api/status")).json()
+        assert any("Abgastemperatur" in x["text"] for x in s["einrichtung"])
+    mit_web(p)

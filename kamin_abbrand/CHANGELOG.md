@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Neu: Knöpfe Eco, Normal und Power auf der Startseite, Zieltemperatur je Stufe unter Einstellungen → Parameter. Die Stufe gilt für die App, die Live-Automation in Home Assistant bleibt unberührt.
+- Neu: Hinweis auf der Startseite mit Direktlinks zu Anlage und Ein-/Ausgänge, solange Angaben fehlen.
+- Behoben: Nach einem Update lief im Browser teils noch das alte JavaScript, dadurch fehlten die Reiter unter Einstellungen.
+
 ## 0.3.0
 
 - Neu: Umschalter Lauschen/Betrieb. Im Betrieb steuert die App die Zuluftklappe. Das geht nur nach Prüfung aller Bedingungen und einmaliger Bestätigung. Sicherer Zustand ist Klappe 100 % offen.

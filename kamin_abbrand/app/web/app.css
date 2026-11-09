@@ -66,8 +66,9 @@ main { padding: 20px 24px 60px; max-width: 980px; width: 100% }
 .band span { flex: 1; text-align: center; padding: 7px 2px; font-size: .78rem; background: var(--grid); color: var(--muted); border-radius: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .band span.aktiv { background: var(--farbe); color: #fff; font-weight: 600 }
 .modus { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden }
-.modus span { padding: 6px 14px; font-size: .88rem; color: var(--muted) }
-.modus span.aktiv { background: var(--fg); color: var(--bg); font-weight: 600 }
+.modus button { font: inherit; font-size: .88rem; padding: 6px 14px; background: none; color: var(--muted); border: 0; cursor: pointer }
+.modus button + button { border-left: 1px solid var(--line) }
+.modus button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600 }
 .zeile { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap }
 
 /* Bedienung */

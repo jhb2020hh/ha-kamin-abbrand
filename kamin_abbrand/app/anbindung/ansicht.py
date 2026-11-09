@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from anbindung.anlagenprofil import KOSTEN, fehlende_angaben
+from anbindung.anlagenprofil import AMORTISATION, KOSTEN, fehlende_angaben
 from anbindung.betrieb import offene_punkte
 from anbindung.buchfuehrung import EINSTELLUNGEN, SALDO, VORGABEN
 from anbindung.einstellungen import AUSGANG, ROLLEN
@@ -212,7 +212,12 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         anfang = min(z.t_phasenstart, t)
         spanne = max(p.t_abbrandstart - anfang, 1.0)
         fortschritt = round(min(max((t - anfang) / spanne, 0.0), 1.0) * 100)
-    leistung = ein.wert(f"input_select.{ein.praefix}_leistungsmodus")
+    leistung_live = ein.wert(f"input_select.{ein.praefix}_leistungsmodus")
+    if leistung_live in ("unknown", "unavailable"):
+        leistung_live = None
+    leistung_app = app.speicher.leistung
+    einrichtung = [x for x in fehlende_angaben(app.speicher.anlagenprofil, app.speicher.rollen)
+                   if x["bereich"] not in (KOSTEN, AMORTISATION)]
     gesendet = app.ausgaenge.gesendet if app.im_betrieb else None
     fehlend = [r.titel for r in ROLLEN if r.stufe == "pflicht" and r.art != AUSGANG and not _rolle(app, r.schluessel)]
     return {
@@ -249,7 +254,10 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "handbetrieb": ein.wert(_rolle(app, "handbetrieb")) == "on",
         "wartung": ein.wert(_rolle(app, "wartung")) == "on",
         "klappe_manuell": p.klappe_manuell,
-        "leistung": leistung if leistung not in (None, "unknown", "unavailable") else None,
+        "leistung": leistung_app or leistung_live,
+        "leistung_live": leistung_live,
+        "leistung_eigen": leistung_app is not None,
+        "einrichtung": einrichtung,
         "betrieb_h": round(app.speicher.daten["betrieb_s"] / 3600.0, 1),
         "app": {
             "paritaet": _kurz(paritaet),

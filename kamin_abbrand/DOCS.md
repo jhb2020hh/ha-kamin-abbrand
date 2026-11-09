@@ -53,6 +53,8 @@ Das Menü **Einstellungen** hat fünf Reiter:
 - **Regler:** Kp, Tn und Kd sowie Auto-Tune. „Aus dem Verlauf berechnen“ wertet die Klappenbewegungen der letzten sieben Tage nach CHR aperiodisch aus und liefert einen Vorschlag, den du bestätigst. Der Testlauf mit gezielter Klappenbewegung ist derzeit gesperrt.
 - **Benachrichtigungen:** Für jede Nachrichtenart wählst du die Geräte. Ohne Haken wird nichts gesendet. Je Gerät gibt es eine Testnachricht.
 
+Die Leistung wählst du mit Eco, Normal und Power auf der Startseite. Sie setzt das Ziel der App, die Zieltemperaturen je Stufe stehen unter Parameter. Eine Live-Automation in Home Assistant bleibt davon unberührt. Im Lauschen wirkt die Wahl nur auf die Berechnung.
+
 Unter Einstellungen → Apps stehen nur `log_stufe` und `helfer_praefix`. Fehlen die Helfer einer Live-Automation, startet die App nach einer Minute im Standby mit ihren Vorgaben.
 
 ## Kosten

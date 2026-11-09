@@ -95,6 +95,9 @@ function wertKarte(titel, gross, einheit, zusatz, balken) {
     zusatz && h("div", { klasse: "leise" }, zusatz),
     balken !== undefined && h("div", { klasse: "balken" }, h("i", { stil: `width:${Math.min(Math.max(balken || 0, 0), 100)}%` })));
 }
+async function leistungWaehlen(modus) {
+  try { const d = await api("api/leistung", { modus }); toast(`Leistung ${modus}: Ziel ${zahl(d.ziel)} °C`); aktualisieren(); } catch (f) { melden(f); }
+}
 function startZeichnen(s) {
   const f = `var(${STIL_FARBE[s.stil] || "--standby"})`;
   const karte = h("div", { klasse: "karte", stil: `--farbe:${f}` },
@@ -120,7 +123,8 @@ function startZeichnen(s) {
   const app = s.app.neu;
   const unten = h("div", { klasse: "karte" }, h("div", { klasse: "zeile" },
     h("div", {}, h("div", { klasse: "etikett" }, "Leistung"),
-      s.leistung ? h("div", { klasse: "modus" }, ["Eco", "Normal", "Power"].map((m) => h("span", { klasse: m === s.leistung ? "aktiv" : "" }, m))) : h("div", { klasse: "leise" }, "Kein Leistungsmodus vorhanden")),
+      h("div", { klasse: "modus", role: "group", "aria-label": "Leistung" }, ["Eco", "Normal", "Power"].map((m) => h("button", { type: "button", "aria-pressed": String(m === s.leistung), onclick: () => leistungWaehlen(m) }, m))),
+      h("div", { klasse: "leise", stil: "margin-top:4px" }, `Ziel ${zahl(s.ziel)} °C`, s.leistung_eigen && s.leistung_live && s.leistung_live !== s.leistung ? ` · Automation läuft auf ${s.leistung_live}` : "", s.modus !== "betrieb" ? " · wirkt im Lauschen nicht auf den Ofen" : "")),
     h("div", {}, h("div", { klasse: "etikett" }, s.modus === "betrieb" ? "Die App steuert" : "Die App würde jetzt"), app ? h("div", {}, `${app.phase}, Klappe ${app.klappe} %`) : h("div", { klasse: "leise" }, "noch keine Berechnung")),
     s.tuerkontakt_vorhanden && s.tuer_offen !== null && h("div", {}, h("div", { klasse: "etikett" }, "Tür"), h("div", {}, s.tuer_offen ? "offen" : "geschlossen"))));
 
@@ -148,7 +152,10 @@ function startZeichnen(s) {
   const fehlt = s.fehlende_pflicht.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Noch einzurichten"),
     h("p", {}, `Bitte unter Ein-/Ausgänge zuweisen: ${s.fehlende_pflicht.join(", ")}.`),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: () => gehe("eingaenge") }, "Jetzt zuweisen")));
-  zeige(...[fehlt, wasser, reinigung, betriebKarte(s), karte, werte, band, unten].filter(Boolean));
+  const einrichtung = s.einrichtung.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Einrichtung noch nicht fertig"),
+    h("p", { klasse: "leise" }, `${s.einrichtung.length === 1 ? "Eine Angabe fehlt" : `${s.einrichtung.length} Angaben fehlen`} noch. Ofenart, Puffer und Wärmeerzeuger stehen unter Anlage, die Sensoren unter Ein-/Ausgänge.`),
+    h("p", { stil: "margin-top:10px" }, h("button", { klasse: "textknopf", onclick: () => gehe("anlage") }, "Zur Anlage"), " ", h("button", { klasse: "textknopf", onclick: () => gehe("eingaenge") }, "Zu den Ein-/Ausgängen")));
+  zeige(...[fehlt, einrichtung, wasser, reinigung, betriebKarte(s), karte, werte, band, unten].filter(Boolean));
 }
 
 // ---- Verlauf -----------------------------------------------------------

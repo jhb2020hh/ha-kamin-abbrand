@@ -39,7 +39,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -63,6 +63,7 @@ class Webserver:
 
     def _oberflaeche_bauen(self) -> web.Application:
         anwendung = web.Application(middlewares=[self._nur_ingress, self._fehlerbehandlung])
+        anwendung.on_response_prepare.append(_statik_nicht_cachen)
         r = anwendung.router
         r.add_get("/", self._index)
         r.add_get("/api/status", self._status)
@@ -76,6 +77,7 @@ class Webserver:
         r.add_get("/api/katalog", self._katalog_abruf)
         r.add_get("/api/parameter", self._parameter)
         r.add_post("/api/parameter", self._parameter_setzen)
+        r.add_post("/api/leistung", self._leistung)
         r.add_post("/api/autotune/verlauf", self._autotune_verlauf)
         r.add_post("/api/autotune/uebernehmen", self._autotune_uebernehmen)
         r.add_post("/api/autotune/aktiv", self._autotune_aktiv)
@@ -134,7 +136,11 @@ class Webserver:
     # ---- Oberfläche ---------------------------------------------------
 
     async def _index(self, _: web.Request) -> web.StreamResponse:
-        return web.FileResponse(STATIK / "index.html", headers={"Cache-Control": "no-cache"})
+        # Der Versionsanhang erreicht auch Browser, die ein altes app.js noch für frisch halten.
+        seite = (STATIK / "index.html").read_text(encoding="utf-8")
+        for datei in ("app.js", "app.css"):
+            seite = seite.replace(f'statik/{datei}"', f'statik/{datei}?v={VERSION}"')
+        return web.Response(text=seite, content_type="text/html", headers={"Cache-Control": "no-cache"})
 
     async def _status(self, _: web.Request) -> web.Response:
         return web.json_response(ansicht.status(self.app))
@@ -343,6 +349,18 @@ class Webserver:
         inhalt = await anfrage.json()
         return web.json_response({"wert": self._setzen(str(inhalt.get("name")), inhalt.get("wert"))})
 
+    def _leistung_setzen(self, modus: Any) -> float:
+        speicher, jetzt = self.app.speicher, time.time()
+        alt_modus, alt_ziel = speicher.leistung, speicher.parameter_neu.get("t_ziel")
+        ziel = speicher.leistung_setzen(modus)
+        self.app.verlauf.aenderung(jetzt, "leistung", alt_modus, modus)
+        self.app.verlauf.aenderung(jetzt, "t_ziel", alt_ziel, ziel)
+        return ziel
+
+    async def _leistung(self, anfrage: web.Request) -> web.Response:
+        inhalt = await anfrage.json()
+        return web.json_response({"ziel": self._leistung_setzen(inhalt.get("modus"))})
+
     async def _vorschlag_rechnen(self) -> Any:
         proben = await asyncio.to_thread(ansicht.proben_lesen, self.ordner)
         self.app.autotune_vorschlag = await asyncio.to_thread(autotune.aus_verlauf, proben)
@@ -464,6 +482,8 @@ class Webserver:
             return web.json_response({"ok": True, "vorschlag": _vorschlag_zeigen(await self._vorschlag_rechnen())})
         if name == "autotune_aktiv":
             return web.json_response({"fehler": AUTOTUNE_GESPERRT}, status=409)
+        if name == "leistung":
+            return web.json_response({"ok": True, "ziel": self._leistung_setzen(wert)})
         if name in _BEOBACHTUNG_GESPERRT:
             return await self._befehl_im_modus(name, wert)
         return web.json_response({"fehler": "Unbekannter Befehl."}, status=400)
@@ -485,8 +505,14 @@ class Webserver:
 
 
 _NUR_APP = {"kp": "regler_verstaerkung", "tn": "regler_nachstellzeit", "kd": "regler_vorhaltung"}
-_BEOBACHTUNG_GESPERRT = {"handbetrieb", "wartung", "leistung", "klappe_manuell", "t_ziel", "fuehler_neustart"}
+_BEOBACHTUNG_GESPERRT = {"handbetrieb", "wartung", "klappe_manuell", "t_ziel", "fuehler_neustart"}
 _IM_BETRIEB_PARAMETER = ("klappe_manuell", "t_ziel")
+
+
+async def _statik_nicht_cachen(anfrage: web.Request, antwort: web.StreamResponse) -> None:
+    """JS und CSS bei jedem Laden nachfragen lassen, damit nach einem Update nie altes JS auf neuem HTML läuft."""
+    if anfrage.path.startswith("/statik/"):
+        antwort.headers["Cache-Control"] = "no-cache"
 
 
 def _alter(zustand: dict) -> Optional[float]:
