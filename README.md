@@ -4,6 +4,22 @@ Home-Assistant-App für Kaminöfen. Sie erkennt die Phasen (Anheizen, Abbrand, G
 
 [![Repository zu Home Assistant hinzufügen](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjhb2020hh%2Fha-kamin-abbrand)
 
+![Startseite: Phase Abbrand mit Abgastemperatur, Klappenstellung, Kaminzug und Wasserseite](docs/screenshots/start.png)
+
+## Einblicke
+
+| Verlauf | Kosten |
+| --- | --- |
+| [![Verlauf von Abgastemperatur, Klappe und Kaminzug über drei Auflagen](docs/screenshots/verlauf.png)](docs/screenshots/verlauf.png) | [![Amortisation und Brennstoffvergleich](docs/screenshots/kosten.png)](docs/screenshots/kosten.png) |
+| Abgastemperatur, Klappe und Kaminzug der letzten Stunden, darunter die Phasen als Farbband. | Amortisation des Ofens und der Preis je kWh Nutzwärme im Vergleich zu deinen anderen Wärmeerzeugern. |
+
+| Einstellungen |
+| --- |
+| [![Zuweisung der Sensoren aus Home Assistant](docs/screenshots/einstellungen.png)](docs/screenshots/einstellungen.png) |
+| Jeder Ein- und Ausgang lässt sich einem Sensor aus Home Assistant zuweisen, ohne Neustart und ohne YAML. |
+
+Die Bilder zeigen eine Beispielanlage mit erfundenen Messwerten.
+
 ## Lauschen und Betrieb
 
 **Die App startet im Modus Lauschen und schaltet dann nichts.** Sie liest Messwerte, rechnet mit und schreibt eigene Sensoren `sensor.kamin_app_*`. Nachrichten sendet sie nur an Geräte, die du ausgewählt hast.
@@ -42,7 +58,21 @@ Die Software wird ohne Gewähr bereitgestellt. Sie ersetzt keine Sicherheitseinr
 
 ## Unterstützen
 
-Die App ist kostenlos. Wenn sie dir hilft, kannst du mir [einen Kaffee ausgeben](https://buymeacoffee.com/jhb2020hh).
+Kamin Abbrand entsteht in der Freizeit, an einem einzigen Ofen, und bleibt kostenlos und quelloffen. Wenn dir die App einen Abend am Feuer angenehmer macht oder beim Rechnen hilft, freue ich mich über einen Kaffee:
+
+<p align="center">
+  <a href="https://buymeacoffee.com/jhb2020hh">
+    <img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-einen%20Kaffee%20ausgeben-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Einen Kaffee ausgeben auf Buy Me a Coffee" height="44">
+  </a>
+</p>
+
+Genauso wertvoll und ganz ohne Geld:
+
+| | |
+| --- | --- |
+| ⭐ **Stern vergeben** | Ein Stern oben rechts hilft anderen Ofenbesitzern, das Projekt zu finden. |
+| 🔥 **Vom eigenen Ofen berichten** | Die Reglerwerte stammen von einem einzigen Ofen. Schreib in einem [Issue](https://github.com/jhb2020hh/ha-kamin-abbrand/issues), welcher Ofen bei dir läuft und wie die App im Modus Lauschen rechnet. |
+| 🐞 **Fehler melden** | Passt eine Phase nicht oder fehlt dir etwas, dann [öffne ein Issue](https://github.com/jhb2020hh/ha-kamin-abbrand/issues/new), am besten mit einem Bild vom Verlauf. |
 
 ## Lizenz
 
