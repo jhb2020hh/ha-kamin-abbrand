@@ -1,8 +1,8 @@
 name: "Kamin Abbrand"
-version: "0.2.2"
+version: "0.3.0"
 slug: kamin_abbrand
 url: "https://github.com/jhb2020hh/ha-kamin-abbrand"
-description: "Abbrandsteuerung für den Kaminofen. Beobachtungsbetrieb: rechnet mit, zeigt an und steuert nichts."
+description: "Abbrandüberwachung und Klappensteuerung für den Kaminofen, mit Kostenvergleich und Wasserseite. Startet im Modus Lauschen."
 arch:
   - aarch64
   - amd64
@@ -28,10 +28,8 @@ map:
 backup_exclude:
   - "*.jsonl"
 options:
-  modus: parallel
   log_stufe: info
   helfer_praefix: kamin_abbrand
 schema:
-  modus: list(parallel)
   log_stufe: list(debug|info|warning|error)
   helfer_praefix: match(^[a-z0-9_]+$)

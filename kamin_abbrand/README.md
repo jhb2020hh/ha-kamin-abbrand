@@ -1,5 +1,5 @@
 # Kamin Abbrand
 
-Beobachtet den Abbrand eines Kaminofens in Home Assistant. Die App rechnet aus der Abgastemperatur Phase und Klappenstellung und zeigt sie an.
+Überwacht den Abbrand eines Kaminofens in Home Assistant, rechnet Phase und Klappenstellung und vergleicht die Heizkosten. Auf Wunsch steuert die App die Zuluftklappe.
 
-**Die App steuert nichts.** Sie bewegt keine Klappe und schaltet keine Geräte. Einrichtung und Grenzen stehen auf dem Reiter „Dokumentation“.
+**Die App startet im Modus Lauschen und schaltet dann nichts.** Für den Modus Betrieb lies vorher den Abschnitt „Sicherheit“ auf dem Reiter „Dokumentation“.

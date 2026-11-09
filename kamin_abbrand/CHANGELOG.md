@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- Neu: Umschalter Lauschen/Betrieb. Im Betrieb steuert die App die Zuluftklappe. Das geht nur nach Prüfung aller Bedingungen und einmaliger Bestätigung. Sicherer Zustand ist Klappe 100 % offen.
+- Neu: Anlagenprofil für jedes System: Ofen normal oder wassergeführt, beliebige Kombination von Wärmeerzeugern, Einheiten, Währung.
+- Neu: Seite Kosten mit Brennstoffvergleich und Amortisation, gemessen oder als gekennzeichnete Schätzung.
+- Neu: Wasserseite mit Warnungen, Wärmemengenzähler für Energie und Leistung. Die App schaltet dort nichts.
+- Neu: Push-Nachrichten, je Nachrichtenart wählbar für jedes Gerät. Vorgabe: keine.
+- Neu: Erinnerung zum Reinigen des Wärmetauschers nach einstellbaren Brennstunden.
+- Geändert: Parameter, Anlage, Ein-/Ausgänge, Regler und Benachrichtigungen liegen unter Einstellungen.
+- Entfernt: Option `modus`. Die Rolle `ausgang_meldungen` ist durch die Geräteauswahl ersetzt.
+
 ## 0.2.2
 
 - Behoben: Die Iststellung der Klappe wird auch von Cover- und Licht-Entitäten gelesen.

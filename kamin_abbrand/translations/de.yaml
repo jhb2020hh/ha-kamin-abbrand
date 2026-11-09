@@ -1,7 +1,4 @@
 configuration:
-  modus:
-    name: Modus
-    description: In Phase 1 gibt es nur „parallel“. Die App liest, rechnet und protokolliert, sie steuert nichts.
   log_stufe:
     name: Log-Stufe
     description: Ausführlichkeit des App-Protokolls.

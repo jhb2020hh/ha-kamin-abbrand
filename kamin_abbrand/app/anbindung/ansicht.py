@@ -7,13 +7,20 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+from anbindung.anlagenprofil import KOSTEN, fehlende_angaben
+from anbindung.betrieb import offene_punkte
+from anbindung.buchfuehrung import EINSTELLUNGEN, SALDO, VORGABEN
 from anbindung.einstellungen import AUSGANG, ROLLEN
+from kern import wartung, wirtschaft
+from kern.wirtschaft import leistung_nach_kw
 from kern.autotune import Probe
 from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, NEU, PARITAET,
                         SIGNAL_FRISCH, SIGNAL_STUMM, STANDBY, STOERUNG, TUER_OFFEN, WARTUNG)
 
-BEOBACHTUNG_TEXT = "Beobachtungsbetrieb: wird von der Automation gesteuert"
-AUTOTUNE_GESPERRT = "Bis zur Umschaltung gesperrt: Im Beobachtungsbetrieb darf die App die Klappe nicht bewegen."
+BEOBACHTUNG_TEXT = "Lauschen: Die App steuert die Klappe nicht. Das geht erst im Betrieb."
+BETRIEB_NUR_HA_TEXT = ("Auch im Betrieb liest die App das nur. Bitte die zugewiesene Entität "
+                       "in Home Assistant schalten.")
+AUTOTUNE_GESPERRT = "In dieser Version gesperrt: Der Testlauf darf die Klappe nicht bewegen."
 
 # Phase: (Stil, blinkt, Satz für den Nutzer, Erklärung hinter dem Info-Knopf)
 ZUSTAENDE: dict[str, tuple[str, bool, str, str]] = {
@@ -43,7 +50,10 @@ _FEUER_PHASEN = (ANHEIZEN, ABBRAND, AUSBRAND, GLUT)
 
 
 def _zustand_zum_zeigen(app: Any, jetzt: float) -> tuple[Optional[Any], str]:
-    """Im Beobachtungsbetrieb bestimmt die Live-Automation, was der Ofen wirklich tut."""
+    """Im Lauschen bestimmt die Live-Automation, was der Ofen wirklich tut, im Betrieb die App."""
+    if app.im_betrieb:
+        stand = app.letzte.get(NEU)
+        return (stand[0].zustand, "app") if stand else (None, "keine")
     live = app.eingaenge.startzustand(jetzt) if not app.ohne_helfer else None
     if live is not None:
         return live, "automation"
@@ -55,16 +65,142 @@ def _rolle(app: Any, name: str) -> Optional[str]:
     return app.speicher.rollen.get(name)
 
 
+def nachlegen_moeglich(app: Any) -> bool:
+    """Der Puffer ist nicht voll (oder es gibt keinen), Nachlegen lohnt also."""
+    puffer = app.eingaenge.zahl(_rolle(app, "puffer_unten"))
+    return puffer is None or puffer < app.eingaenge.parameter.puffer_voll
+
+
+def reinigung_zeigen(app: Any) -> Optional[dict]:
+    """None, wenn es keine Erinnerung gibt (luftgeführt oder 0 h)."""
+    if not app.speicher.anlagenprofil.wassergefuehrt:
+        return None
+    stand = app.speicher.wartungsstand
+    r = wartung.pruefen(float(app.speicher.daten["betrieb_s"]), stand, app.speicher.reinigung_intervall_h)
+    if not r.aktiv:
+        return None
+    return {"intervall_h": r.intervall_h, "gefahren_h": round(r.gefahren_h, 1), "rest_h": round(r.rest_h, 1),
+            "faellig": r.faellig, "bald": r.bald, "letzte": stand.letzte_reinigung}
+
+
+def wasser_zeigen(app: Any) -> Optional[dict]:
+    """Karte der Wasserseite. None bei luftgeführtem Ofen. Leistung und Energie sind nur Anzeige."""
+    if not app.speicher.anlagenprofil.wassergefuehrt:
+        return None
+    rollen, ein = app.speicher.rollen, app.eingaenge
+    erg = app.wasser_ergebnis
+
+    def lesen(rolle: str, umrechnen, einheiten: str) -> tuple[Optional[float], Optional[str]]:
+        eid = rollen.get(rolle)
+        eintrag = ein.eintrag(eid)
+        if not eid or eintrag is None:
+            return None, None
+        einheit = eintrag.attribute.get("unit_of_measurement")
+        zahl = ein.zahl(eid)
+        if zahl is None:
+            return None, None
+        wert = umrechnen(zahl, einheit)
+        return wert, None if wert is not None else f"Die Einheit „{einheit or 'fehlt'}“ wird nicht gelesen. Erlaubt: {einheiten}."
+
+    leistung, leistung_problem = lesen("waermeleistung", leistung_nach_kw, "W, kW")
+    energie_stand, energie_problem = lesen("waermezaehler", wirtschaft.energie_nach_kwh, "Wh, kWh, MWh")
+    heute = None
+    buch = getattr(app, "buchfuehrung", None)
+    if buch is not None and energie_stand is not None:
+        zeile = buch.tage.get(datetime.fromtimestamp(app._uhr()).date().isoformat())
+        heute = zeile.get("waerme_zaehler_kwh") if zeile else None
+    return {
+        "stufe": erg.stufe if erg else "ok", "befunde": [b.als_dict() for b in erg.befunde] if erg else [],
+        "leistung_kw": leistung, "leistung_problem": leistung_problem,
+        "energie_heute_kwh": heute, "energie_problem": energie_problem,
+        "hat_waermezaehler": bool(rollen.get("waermezaehler")), "hat_leistung": bool(rollen.get("waermeleistung")),
+    }
+
+
+def betrieb_zeigen(app: Any, jetzt: float) -> dict:
+    """Die Oberfläche zeigt nur an, ob etwas erlaubt ist, entschieden wird auf dem Server."""
+    s = app.speicher
+    eintrag = s.bestaetigung.get("betrieb") if s.bestaetigt else None
+    return {
+        "offene_punkte": [p.als_dict() for p in offene_punkte(app, jetzt)],
+        "bestaetigt": s.bestaetigt,
+        "bestaetigt_am": eintrag["datum"] if eintrag else None,
+        "bestaetigt_version": eintrag["version"] if eintrag else None,
+        "watchdog_zugewiesen": bool(s.rollen.get("ausgang_heartbeat")),
+        "ohne_watchdog_bestaetigt": s.ohne_watchdog_bestaetigt,
+        "stoerung": app.ausgaenge.stoerung if app.im_betrieb else None,
+        "anlaufschutz": app.anlaufschutz,
+        "rueckfall": app.rueckfall,
+    }
+
+
+RECHENHILFE_TEXT = ("Rechenhilfe: Die Zahlen beruhen auf deinen Preisen, Heizwerten und Nutzungsgraden. "
+                    "Sie sind keine Abrechnung und keine Beratung.")
+
+
+TAGE_ANZEIGEN = 60
+
+
+def amortisation_zeigen(app: Any) -> Optional[dict]:
+    """Kurzfassung für Start, Sensor und Integration. None, solange es keine Buchführung gibt."""
+    buch = getattr(app, "buchfuehrung", None)
+    if buch is None:
+        return None
+    profil = app.speicher.anlagenprofil
+    a = buch.amortisation(profil)
+    return {k: a[k] for k in ("status", "art", "prozent", "netto_eur", "rest_eur", "prognose_jahre", "investition")} | {
+        "waehrung": profil.waehrung}
+
+
+def wirtschaft_zeigen(app: Any, menge_kwh: Optional[float] = None) -> dict:
+    """Brennstoffvergleich für eine Menge Nutzwärme, dazu Amortisation und Tageswerte."""
+    profil = app.speicher.anlagenprofil
+    v = wirtschaft.vergleich(profil, wirtschaft.VORGABE_MENGE_KWH if menge_kwh is None else menge_kwh)
+    erg = {
+        "waehrung": profil.waehrung,
+        "rechenhilfe": RECHENHILFE_TEXT,
+        "vergleich": v.als_dict(),
+        "hinweise": [h for h in fehlende_angaben(profil, app.speicher.rollen) if h["bereich"] == KOSTEN],
+    }
+    buch = getattr(app, "buchfuehrung", None)
+    if buch is None:
+        return erg
+    zeilen = buch.zeilen(profil)
+    heute = zeilen[-1] if zeilen and zeilen[-1]["tag"] == datetime.fromtimestamp(app._uhr()).date().isoformat() else None
+    k = buch.konfiguration(profil)
+    return erg | {
+        "amortisation": buch.amortisation(profil),
+        "amortisation_hinweise": [h for h in fehlende_angaben(profil, app.speicher.rollen) if h["bereich"] == "Amortisation"],
+        "tage": [_tag_zeigen(z) for z in zeilen[-TAGE_ANZEIGEN:]][::-1],
+        "heute_auflagen": heute["auflagen"] if heute else 0,
+        "kg_je_auflage": k.kg_je_auflage,
+        "einstellungen": {n: {"wert": buch.einstellungen.get(n), "vorgabe": VORGABEN.get(n), "minimum": m, "maximum": x, "titel": t}
+                          for n, (m, x, t) in EINSTELLUNGEN.items()},
+        "saldo": buch.saldo,
+        "saldo_felder": {n: t for n, (_, _, t) in SALDO.items()},
+        "referenz": buch.referenz_vorschlag(profil).als_dict(),
+    }
+
+
+def _tag_zeigen(z: dict) -> dict:
+    t = wirtschaft.mittel_t_aussen(z)
+    return {"tag": z["tag"], "auflagen": z["auflagen"], "holz_kg": z["holz_kg"], "holz_eur": z["holz_eur"],
+            "kaminwaerme_kwh": z.get("kaminwaerme_kwh", 0.0), "waerme_art": z.get("waerme_art"),
+            "verbrauch_kwh": z["verbrauch_kwh"], "t_aussen": t, "einsparung_kwh": z.get("einsparung_kwh", 0.0),
+            "einsparung_eur": z.get("einsparung_eur"), "art": z.get("art"), "vorlaeufig": not z["final"],
+            "ohne_menge": z["ohne_menge"]}
+
+
 def status(app: Any, jetzt: Optional[float] = None) -> dict:
     jetzt = time.time() if jetzt is None else jetzt
     ein = app.eingaenge
     z, quelle = _zustand_zum_zeigen(app, jetzt)
-    t = ein.zahl(_rolle(app, "abgas"))
+    t = ein.temperatur_c(_rolle(app, "abgas"))
     p = ein.parameter
     phase = z.phase if z else None
     stil, blinkt, satz, info = ZUSTAENDE.get(phase, ("standby", False, "Warte auf Daten aus Home Assistant.", ""))
     puffer = ein.zahl(_rolle(app, "puffer_unten"))
-    nachlegen = phase == GLUT and (puffer is None or puffer < p.puffer_voll)
+    nachlegen = phase == GLUT and nachlegen_moeglich(app)
     if nachlegen:
         stil, satz = "nachlegen", NACHLEGEN_TEXT
     neu = app.letzte.get(NEU)
@@ -77,6 +213,7 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         spanne = max(p.t_abbrandstart - anfang, 1.0)
         fortschritt = round(min(max((t - anfang) / spanne, 0.0), 1.0) * 100)
     leistung = ein.wert(f"input_select.{ein.praefix}_leistungsmodus")
+    gesendet = app.ausgaenge.gesendet if app.im_betrieb else None
     fehlend = [r.titel for r in ROLLEN if r.stufe == "pflicht" and r.art != AUSGANG and not _rolle(app, r.schluessel)]
     return {
         "zeit": jetzt,
@@ -86,13 +223,15 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "satz": satz if phase else ("Bitte zuerst die Abgastemperatur zuweisen." if fehlend else satz),
         "info": info,
         "quelle": quelle,
-        "beobachtung": True,
+        "modus": app.modus,
+        "beobachtung": not app.im_betrieb,
+        "betrieb": betrieb_zeigen(app, jetzt),
         "phasenband": PHASENBAND,
         "fortschritt": fortschritt,
         "seit_s": max(0, jetzt - z.phase_seit) if z else None,
         "abgas": t,
         "ziel": p.t_ziel,
-        "klappe_soll": z.klappe_soll if z else None,
+        "klappe_soll": gesendet if gesendet is not None else (z.klappe_soll if z else None),
         "klappe_ist": ein.stellung(_rolle(app, "klappe_ist")),
         "zug": ein.zahl(_rolle(app, "druck")),
         "twt": ein.zahl(_rolle(app, "t_wt")),
@@ -117,6 +256,9 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
             "neu": _kurz(neu),
         },
         "fehlende_pflicht": fehlend,
+        "reinigung": reinigung_zeigen(app),
+        "amortisation": amortisation_zeigen(app),
+        "wasser": wasser_zeigen(app),
         "fehler": dict(app._fehler),
     }
 

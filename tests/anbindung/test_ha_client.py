@@ -172,7 +172,10 @@ def test_schreibsperre_wirft_und_nichts_erreicht_den_server(entity_id):
 
 def test_client_hat_keinen_weg_fuer_dienste():
     oeffentlich = {n for n in dir(HaClient) if not n.startswith("_")}
-    assert oeffentlich == {"hole_zustaende", "laufen", "schliessen", "setze_schattensensor", "verbunden"}
+    # Dazu kommen: Dienste lesen, notify.<name> senden und das Schalten im Betrieb, alle streng begrenzt (siehe unten).
+    assert oeffentlich == {"hole_zustaende", "hole_dienste", "laufen", "schliessen", "sende_notify",
+                           "setze_schattensensor", "verbunden",
+                           "schalte", "betrieb_aktiv", "betrieb_freigeben", "betrieb_sperren"}
 
 
 @pytest.mark.parametrize("befehl", ["call_service", "fire_event", "execute_script", "config/core/update"])
@@ -197,5 +200,178 @@ def test_ws_positivliste_sperrt_andere_befehle(befehl):
 def test_quelltext_enthaelt_keinen_dienstaufruf():
     for pfad in Path(anbindung.__file__).parent.glob("*.py"):
         text = pfad.read_text(encoding="utf-8")
-        for verboten in ("call_service", "/services", "fire_event", "kern.typen import AKTION"):
+        for verboten in ("call_service", "fire_event"):
             assert verboten not in text, f"{verboten} in {pfad.name}"
+        # Nur die Ausgänge dürfen die Aktionen des Kerns kennen, sie führen sie ausschließlich im Betrieb aus.
+        if pfad.name != "ausgaenge.py":
+            assert "kern.typen import AKTION" not in text, f"Aktionen in {pfad.name}"
+        if pfad.name != "ha_client.py":
+            assert "/services" not in text, f"/services in {pfad.name}"
+    # Im Client selbst gibt es genau drei Pfade: die Liste lesen, notify senden und schalte im Betrieb.
+    text = (Path(anbindung.__file__).parent / "ha_client.py").read_text(encoding="utf-8")
+    assert text.count('f"{self._rest_url}/services') == 3
+    assert 'f"{self._rest_url}/services"' in text and "/services/notify/" in text
+    assert '/services/{domain}/{dienst}"' in text
+    assert text.count("/services/{domain}") == 1
+
+
+def test_dienste_lesen_ist_nur_ein_get():
+    async def ablauf():
+        async with FakeHa() as ha:
+            ha.dienste = [{"domain": "notify", "services": {"mobile_app_a": {}}}]
+            client = baue_client(ha, Mitschrift())
+            assert await client.hole_dienste() == ha.dienste
+            await client.schliessen()
+            assert ha.rest_anfragen == [("GET", "/core/api/services", {})]
+            assert ha.rest_token == [f"Bearer {TOKEN}"]
+
+    asyncio.run(ablauf())
+
+
+def test_notify_wird_gesendet():
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            await client.sende_notify("notify.mobile_app_a", "Titel", "Text", {"push": {"interruption-level": "time-sensitive"}})
+            await client.sende_notify("notify.b", "T", "X")
+            await client.schliessen()
+            assert ha.gesendet() == [
+                ("notify.mobile_app_a", {"title": "Titel", "message": "Text", "data": {"push": {"interruption-level": "time-sensitive"}}}),
+                ("notify.b", {"title": "T", "message": "X"}),
+            ]
+            assert ha.rest_token == [f"Bearer {TOKEN}"] * 2
+
+    asyncio.run(ablauf())
+
+
+@pytest.mark.parametrize("dienst", [
+    "cover.open_cover", "light.turn_on", "script.turn_on", "homeassistant.restart", "notify", "notify.", "notify.A",
+    "notify.a/../../services/cover/open_cover", "notify.a?x=1", "notify.a.b", "notify.a\n", "Notify.a", " notify.a",
+    "persistent_notification.create", "", None, 5,
+])
+def test_ungueltige_dienste_werfen_und_nichts_erreicht_den_server(dienst):
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            with pytest.raises(SchreibsperreFehler):
+                await client.sende_notify(dienst, "T", "X")
+            await client.schliessen()
+            assert ha.rest_anfragen == []
+
+    asyncio.run(ablauf())
+
+
+def test_notify_fehlerstatus_wird_zur_ausnahme():
+    import aiohttp
+
+    async def ablauf():
+        async with FakeHa() as ha:
+            ha.rest_status = 500
+            client = baue_client(ha, Mitschrift())
+            with pytest.raises(aiohttp.ClientResponseError):
+                await client.sende_notify("notify.a", "T", "X")
+            await client.schliessen()
+
+    asyncio.run(ablauf())
+
+
+# ---- Schalten: Der Weg existiert nur im Betrieb und nur für zugewiesene Ausgänge ----
+
+VERSUCHE = [
+    ("cover", "set_cover_position", "cover.k", {"position": 50}),
+    ("light", "turn_on", "light.k", {"brightness_pct": 50}),
+    ("light", "turn_off", "light.k", None),
+    ("number", "set_value", "number.k", {"value": 1}),
+    ("input_number", "set_value", "input_number.k", {"value": 1}),
+    ("input_boolean", "turn_off", "input_boolean.w", None),
+    ("switch", "turn_off", "switch.w", None),
+    ("button", "press", "button.n", None),
+    ("script", "turn_on", "script.n", None),
+]
+
+
+@pytest.mark.parametrize("domain, dienst, eid, daten", VERSUCHE)
+def test_im_lauschen_wirft_jeder_schaltversuch(domain, dienst, eid, daten):
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            assert client.betrieb_aktiv is False
+            with pytest.raises(SchreibsperreFehler):
+                await client.schalte(domain, dienst, eid, daten)
+            await client.schliessen()
+            assert ha.rest_anfragen == []
+
+    asyncio.run(ablauf())
+
+
+@pytest.mark.parametrize("domain, dienst, eid, daten", VERSUCHE)
+def test_im_betrieb_erreichen_zugewiesene_ausgaenge_den_server(domain, dienst, eid, daten):
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            client.betrieb_freigeben([eid])
+            await client.schalte(domain, dienst, eid, daten)
+            await client.schliessen()
+            assert ha.rest_anfragen == [("POST", f"/core/api/services/{domain}/{dienst}", {**(daten or {}), "entity_id": eid})]
+            assert ha.rest_token == [f"Bearer {TOKEN}"]
+
+    asyncio.run(ablauf())
+
+
+@pytest.mark.parametrize("domain, dienst, eid, daten", [
+    ("cover", "set_cover_position", "cover.fremd", {"position": 1}),            # nicht zugewiesen
+    ("switch", "turn_on", "switch.pumpe", None),                                # Dienst nicht in der Liste
+    ("switch", "turn_off", "switch.pumpe", None),                               # Pumpe ist nicht zugewiesen
+    ("light", "turn_on", "cover.k", {"brightness_pct": 1}),                     # Domain passt nicht zur Entität
+    ("cover", "open_cover", "cover.k", None),
+    ("homeassistant", "restart", "cover.k", None),
+    ("script", "turn_on", "cover.k", None),
+    ("automation", "turn_off", "automation.x", None),
+    ("cover", "set_cover_position", "cover.k", {"position": 1, "entity_id": "cover.fremd"}),
+    ("cover", "set_cover_position", "cover.k", {"device_id": "x"}),
+    ("cover", "set_cover_position", "cover.k/../../x", {"position": 1}),
+    ("cover", "set_cover_position", "", {"position": 1}),
+    ("cover", "set_cover_position", None, {"position": 1}),
+    ("cover/../homeassistant", "restart", "cover.k", None),
+    (None, None, "cover.k", None),
+])
+def test_im_betrieb_bleibt_alles_andere_gesperrt(domain, dienst, eid, daten):
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            client.betrieb_freigeben(["cover.k", "cover.k/../../x"])
+            with pytest.raises(SchreibsperreFehler):
+                await client.schalte(domain, dienst, eid, daten)
+            await client.schliessen()
+            assert ha.rest_anfragen == []
+
+    asyncio.run(ablauf())
+
+
+def test_sperren_schliesst_den_weg_wieder():
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            client.betrieb_freigeben(["cover.k"])
+            client.betrieb_sperren()
+            with pytest.raises(SchreibsperreFehler):
+                await client.schalte("cover", "set_cover_position", "cover.k", {"position": 100})
+            await client.schliessen()
+            assert ha.rest_anfragen == [] and client.betrieb_aktiv is False
+
+    asyncio.run(ablauf())
+
+
+def test_schalten_fehlerstatus_wird_zur_ausnahme():
+    import aiohttp
+
+    async def ablauf():
+        async with FakeHa() as ha:
+            ha.dienst_status = 500
+            client = baue_client(ha, Mitschrift())
+            client.betrieb_freigeben(["cover.k"])
+            with pytest.raises(aiohttp.ClientResponseError):
+                await client.schalte("cover", "set_cover_position", "cover.k", {"position": 100})
+            await client.schliessen()
+
+    asyncio.run(ablauf())

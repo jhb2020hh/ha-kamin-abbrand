@@ -74,10 +74,46 @@ class Schatten:
             for feld, wert, attribute in werte
         ))
 
+    async def reinigung(self, status: Any, letzte_reinigung: Optional[float], jetzt: float) -> None:
+        """ok/faellig, bei luftgeführtem Ofen oder Intervall 0 aus."""
+        wert = "aus" if not status.aktiv else ("faellig" if status.faellig else "ok")
+        attribute: dict[str, Any] = {"friendly_name": "Kamin App Wärmetauscher reinigen", "icon": "mdi:broom"}
+        if status.aktiv:
+            attribute |= {
+                "reststunden": round(status.rest_h, 1), "intervall_stunden": status.intervall_h,
+                "gefahrene_stunden": round(status.gefahren_h, 1),
+                "letzte_reinigung": (datetime.fromtimestamp(letzte_reinigung).astimezone().isoformat(timespec="seconds")
+                                     if letzte_reinigung else None),
+            }
+        await self._setzen("sensor.kamin_app_wt_reinigung", wert, attribute, jetzt)
+
+    async def wasser(self, ergebnis: Any, jetzt: float) -> None:
+        """ok/hinweis/warnung/alarm, bei luftgeführtem Ofen „aus“. Die Texte stehen als Attribut."""
+        attribute: dict[str, Any] = {"friendly_name": "Kamin App Wasser Status", "icon": "mdi:water-thermometer"}
+        if ergebnis is not None:
+            attribute["texte"] = ergebnis.texte
+        await self._setzen("sensor.kamin_app_wasser_status", "aus" if ergebnis is None else ergebnis.stufe, attribute, jetzt)
+
+    async def amortisation(self, daten: Optional[dict], jetzt: float) -> None:
+        """Prozent der Investition, die der Ofen eingespielt hat. Netto, Rest und Art als Attribute."""
+        if daten is None:
+            return
+        prozent = daten.get("prozent")
+        attribute: dict[str, Any] = {
+            "friendly_name": "Kamin App Amortisation", "icon": "mdi:cash-check", "unit_of_measurement": "%",
+            "status": daten["status"], "art": daten["art"], "netto": _runden(daten.get("netto_eur")),
+            "rest": _runden(daten.get("rest_eur")), "prognose_jahre": _runden(daten.get("prognose_jahre"), 1),
+            "waehrung": daten.get("waehrung")}
+        await self._setzen("sensor.kamin_app_amortisation", "unknown" if prozent is None else f"{prozent:.1f}", attribute, jetzt)
+
     async def status(self, wert: str, jetzt: float, **attribute: Any) -> None:
         await self._setzen(
             STATUS_ID, wert, {"friendly_name": "Kamin App Status", **attribute}, jetzt
         )
+
+
+def _runden(wert: Optional[float], stellen: int = 2) -> Optional[float]:
+    return None if wert is None else round(wert, stellen)
 
 
 LIVE_FELDER = ("phase", "phase_seit", "klappe_soll", "i_anteil", "t_maximum", "t_phasenstart")

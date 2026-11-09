@@ -33,6 +33,8 @@ class FakeHa:
         self.verbindungen = 0
         self.anmeldungen_ok = 0
         self.rest_status = 200
+        self.dienst_status: Optional[int] = None    # Nur für Dienste außer notify, None = wie rest_status
+        self.dienste: list[dict] = []
         self._offen: set[web.WebSocketResponse] = set()
         self._abos: dict[web.WebSocketResponse, int] = {}
         app = web.Application()
@@ -74,6 +76,18 @@ class FakeHa:
     async def abbrechen(self) -> None:
         for ws in list(self._offen):
             await ws.close()
+
+    def gesendet(self) -> list[tuple[str, dict]]:
+        """Alle Aufrufe von notify.<name>: (Dienst, Inhalt)."""
+        vorspann = "/core/api/services/notify/"
+        return [("notify." + p[len(vorspann):], k) for m, p, k in self.rest_anfragen
+                if m == "POST" and p.startswith(vorspann)]
+
+    def schaltbefehle(self) -> list[tuple[str, dict]]:
+        """Alle Dienstaufrufe außer notify: ("domain.dienst", Inhalt)."""
+        vorspann = "/core/api/services/"
+        return [(p[len(vorspann):].replace("/", "."), k) for m, p, k in self.rest_anfragen
+                if m == "POST" and p.startswith(vorspann) and not p.startswith(vorspann + "notify/")]
 
     def geschrieben(self, eid: str) -> list[str]:
         pfad = f"/core/api/states/{eid}"
@@ -122,7 +136,11 @@ class FakeHa:
         inhalt = await anfrage.json() if anfrage.can_read_body else {}
         self.rest_anfragen.append((anfrage.method, anfrage.path, inhalt))
         self.rest_token.append(anfrage.headers.get("Authorization", ""))
-        return web.json_response({}, status=self.rest_status)
+        if anfrage.method == "GET" and anfrage.path == "/core/api/services":
+            return web.json_response(self.dienste, status=self.rest_status)
+        dienst = anfrage.path.startswith("/core/api/services/") and not anfrage.path.startswith("/core/api/services/notify/")
+        status = self.dienst_status if dienst and self.dienst_status is not None else self.rest_status
+        return web.json_response({}, status=status)
 
 
 async def warte_auf(bedingung, timeout_s: float = 3.0) -> None:

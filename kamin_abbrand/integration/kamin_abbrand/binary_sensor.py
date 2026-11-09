@@ -11,7 +11,7 @@ _LISTE = (
     ("stoerung", "Störung", BinarySensorDeviceClass.PROBLEM),
     ("nachlegen_empfohlen", "Nachlegen empfohlen", None),
     ("fuehler_stumm", "Fühler stumm", BinarySensorDeviceClass.PROBLEM),
-    ("beobachtung", "Beobachtungsbetrieb", None),
+    ("beobachtung", "Lauschen", None),
     ("ausgaenge_zugewiesen", "Ausgänge zugewiesen", None),
 )
 

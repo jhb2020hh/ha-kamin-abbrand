@@ -19,6 +19,7 @@ ZUSTAND = {
     "zug": 8.6, "twt": 46.5, "puffer_unten": 33.1, "gradient": -3.9, "i_anteil": 50.8, "seit_s": 660, "betrieb_h": 12.5,
     "tuer_offen": False, "feuer": True, "stoerung": False, "nachlegen_empfohlen": False, "fuehler_stumm": False,
     "beobachtung": True, "ausgaenge_zugewiesen": False, "handbetrieb": False, "wartung": False, "tuerkontakt_vorhanden": True,
+    "wasser_status": "warnung", "amortisation_prozent": 12.5, "amortisation_netto": 300.5, "waehrung": "€",
     "leistung": "Normal", "klappe_manuell": 100, "kp": 0.5, "tn": 7, "kd": 0, "version": "0.2.0",
 }
 BEOBACHTUNG = "Beobachtungsbetrieb: wird von der Automation gesteuert"
@@ -65,11 +66,15 @@ async def test_alle_entitaeten_erscheinen(hass, aioclient_mock):
     for e in entitaeten:
         nach_art.setdefault(e.domain, []).append(e)
     assert {k: len(v) for k, v in nach_art.items()} == {
-        "sensor": 13, "binary_sensor": 7, "switch": 3, "select": 1, "number": 5, "button": 3}
+        "sensor": 16, "binary_sensor": 7, "switch": 3, "select": 1, "number": 5, "button": 3}
     assert hass.states.get("sensor.kamin_abbrand_abgastemperatur").state == "221.0"
     assert hass.states.get("sensor.kamin_abbrand_phase").state == "Abbrand"
     assert hass.states.get("select.kamin_abbrand_leistung").state == "Normal"
     assert hass.states.get("sensor.kamin_abbrand_abbrand_dauer").state == "11.0"
+    assert hass.states.get("sensor.kamin_abbrand_wasser").state == "warnung"
+    assert hass.states.get("sensor.kamin_abbrand_amortisation").state == "12.5"
+    netto = hass.states.get("sensor.kamin_abbrand_netto_ersparnis")
+    assert netto.state == "300.5" and netto.attributes["unit_of_measurement"] == "€"
 
 
 @pytest.mark.parametrize("domain, dienst, ziel, daten", [

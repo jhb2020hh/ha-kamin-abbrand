@@ -18,13 +18,14 @@ _ZAHLEN = (
     ("gradient", "Temperaturanstieg", "K/min", None, 1),
     ("i_anteil", "I-Anteil", PERCENTAGE, None, 1),
     ("betrieb_h", "Betriebsstunden", UnitOfTime.HOURS, SensorDeviceClass.DURATION, 1),
+    ("amortisation_prozent", "Amortisation", PERCENTAGE, None, 1),
 )
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
     k = entry.runtime_data
-    async_add_entities([KaminText(k, "phase", "Phase"), KaminText(k, "satz", "Status"), AbbrandDauer(k)]
-                       + [KaminZahl(k, *z) for z in _ZAHLEN])
+    async_add_entities([KaminText(k, "phase", "Phase"), KaminText(k, "satz", "Status"), KaminText(k, "wasser_status", "Wasser"), AbbrandDauer(k)]
+                       + [KaminZahl(k, *z) for z in _ZAHLEN] + [KaminNetto(k)])
 
 
 class KaminText(KaminEntitaet, SensorEntity):
@@ -63,3 +64,14 @@ class AbbrandDauer(KaminEntitaet, SensorEntity):
     def native_value(self):
         d = self.coordinator.data
         return round(d["seit_s"] / 60, 1) if d.get("phase") == "Abbrand" and d.get("seit_s") is not None else 0
+
+
+class KaminNetto(KaminZahl):
+    """Netto-Ersparnis. Das Währungszeichen stellt der Nutzer in der App ein, es steht in jedem Stand."""
+
+    def __init__(self, k) -> None:
+        super().__init__(k, "amortisation_netto", "Netto-Ersparnis", None, None, 0)
+
+    @property
+    def native_unit_of_measurement(self):
+        return self.coordinator.data.get("waehrung") or "€"

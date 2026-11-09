@@ -1,8 +1,8 @@
 """Eigene Oberfläche über HA-Ingress und die Schnittstelle für die Integration.
 
 Port 8099 nimmt nur Verbindungen vom Ingress-Proxy an, die Anmeldung erledigt dort HA.
-Port 8100 verlangt das Token der Integration. Beide ändern nur Daten der App:
-Einen Weg, etwas in Home Assistant zu schalten, gibt es hier nicht.
+Port 8100 verlangt das Token der Integration. Geschaltet wird nur über `App`: Hier gibt es
+keinen eigenen Weg in Home Assistant, und ob der Betrieb erlaubt ist, entscheidet der Server.
 """
 from __future__ import annotations
 
@@ -14,12 +14,18 @@ import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
+import aiohttp
 from aiohttp import web
 
+from anbindung.anlagenprofil import (Erzeuger, einheit_normal, fehlende_angaben, feld_passt, ist_fahrenheit,
+                                     katalog, rolle_passt, zaehler_nach_kwh)
+from anbindung.benachrichtigung import ARTEN, dienst_gueltig, geraete_aus_diensten, lesbarer_name
 from anbindung.bereitstellung import eigener_host
 from anbindung import ansicht
-from anbindung.ansicht import AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT
-from anbindung.einstellungen import (FELDER, PARAMETER_THEMEN, REGLER_FELDER, ROLLEN, EinstellungsFehler)
+from anbindung.ansicht import AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_HA_TEXT
+from anbindung.eingaenge import als_zahl
+from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, PARAMETER_THEMEN, REGLER_FELDER,
+                                     ROLLEN, EinstellungsFehler)
 from anbindung.ha_client import VerbindungWeg
 from kern import autotune
 from kern.typen import Parameter
@@ -32,7 +38,8 @@ PORT_INTEGRATION = 8100
 STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
-VERSION = "0.2.2"
+MAX_KWH = 1_000_000.0
+VERSION = "0.3.0"
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -60,8 +67,12 @@ class Webserver:
         r.add_get("/", self._index)
         r.add_get("/api/status", self._status)
         r.add_get("/api/verlauf", self._verlauf)
+        r.add_get("/api/wirtschaft", self._wirtschaft)
+        r.add_post("/api/wirtschaft", self._wirtschaft_aendern)
         r.add_get("/api/rollen", self._rollen)
         r.add_post("/api/rollen", self._rollen_speichern)
+        r.add_get("/api/profil", self._profil)
+        r.add_post("/api/profil", self._profil_speichern)
         r.add_get("/api/katalog", self._katalog_abruf)
         r.add_get("/api/parameter", self._parameter)
         r.add_post("/api/parameter", self._parameter_setzen)
@@ -69,6 +80,11 @@ class Webserver:
         r.add_post("/api/autotune/uebernehmen", self._autotune_uebernehmen)
         r.add_post("/api/autotune/aktiv", self._autotune_aktiv)
         r.add_get("/api/service", self._service)
+        r.add_get("/api/benachrichtigungen", self._benachrichtigungen)
+        r.add_post("/api/benachrichtigungen", self._benachrichtigungen_speichern)
+        r.add_post("/api/benachrichtigungen/test", self._benachrichtigung_test)
+        r.add_post("/api/reinigung/bestaetigen", self._reinigung_bestaetigen)
+        r.add_post("/api/betrieb", self._betrieb_setzen)
         r.add_static("/statik/", STATIK)
         return anwendung
 
@@ -128,6 +144,44 @@ class Webserver:
         daten = await asyncio.to_thread(ansicht.verlauf_lesen, self.ordner, stunden)
         return web.json_response(daten)
 
+    async def _wirtschaft(self, anfrage: web.Request) -> web.Response:
+        roh = anfrage.query.get("kwh")
+        menge = None
+        if roh not in (None, ""):
+            menge = als_zahl(roh)
+            if menge is None or not 0 < menge <= MAX_KWH:
+                raise EinstellungsFehler(f"Die Menge muss zwischen 0 und {MAX_KWH:,.0f} kWh liegen.".replace(",", "."))
+        return web.json_response(ansicht.wirtschaft_zeigen(self.app, menge))
+
+    async def _wirtschaft_aendern(self, anfrage: web.Request) -> web.Response:
+        """Eine Änderung je Anfrage: einstellungen, eroeffnung, auflage (+1 oder −1) oder referenz_uebernehmen."""
+        inhalt = await anfrage.json()
+        buch = self.app.buchfuehrung
+        if not isinstance(inhalt, dict) or buch is None:
+            raise EinstellungsFehler("Die Anfrage ist ungültig.")
+        aktion, profil, jetzt = inhalt.get("aktion"), self.app.speicher.anlagenprofil, time.time()
+        if aktion == "einstellungen":
+            alt = dict(buch.einstellungen)
+            buch.einstellungen_setzen(inhalt.get("werte"))
+            self.app.verlauf.aenderung(jetzt, "wirtschaft", alt, buch.einstellungen)
+        elif aktion == "eroeffnung":
+            alt = dict(buch.saldo)
+            buch.saldo_setzen(inhalt.get("werte"))
+            self.app.verlauf.aenderung(jetzt, "eroeffnungssaldo", alt, buch.saldo)
+        elif aktion == "auflage":
+            delta = inhalt.get("delta")
+            if delta not in (1, -1) or isinstance(delta, bool):
+                raise EinstellungsFehler("Eine Auflage lässt sich nur um 1 erhöhen oder verringern.")
+            buch.auflage(jetzt, delta, profil)
+            self.app.verlauf.aenderung(jetzt, "auflage", None, delta)
+        elif aktion == "referenz_uebernehmen":
+            alt = dict(buch.einstellungen)
+            buch.referenz_uebernehmen(profil)
+            self.app.verlauf.aenderung(jetzt, "referenz", alt, buch.einstellungen)
+        else:
+            raise EinstellungsFehler("Unbekannte Aktion.")
+        return web.json_response({"ok": True})
+
     async def _zustaende(self) -> list[dict]:
         zeit, daten = self._katalog
         if time.time() - zeit > KATALOG_GUELTIG_S:
@@ -135,17 +189,22 @@ class Webserver:
             self._katalog = (time.time(), daten)
         return daten
 
-    async def _rollen(self, _: web.Request) -> web.Response:
+    async def _zustaende_je_id(self) -> tuple[dict, bool]:
         try:
-            zustaende = {z["entity_id"]: z for z in await self._zustaende()}
-            verbunden = True
+            return {z["entity_id"]: z for z in await self._zustaende()}, True
         except (VerbindungWeg, asyncio.TimeoutError):
-            zustaende, verbunden = {}, False
+            return {}, False
+
+    async def _rollen(self, _: web.Request) -> web.Response:
+        zustaende, verbunden = await self._zustaende_je_id()
         speicher = self.app.speicher
+        profil = speicher.anlagenprofil
         return web.json_response({
             "verbunden": verbunden,
             "tuerkontakt_vorhanden": speicher.tuerkontakt_vorhanden,
-            "rollen": [self._rolle_zeigen(r, speicher.rollen.get(r.schluessel), zustaende, verbunden) for r in ROLLEN],
+            "rollen": [self._rolle_zeigen(r, speicher.rollen.get(r.schluessel), zustaende, verbunden)
+                       | {"sichtbar": rolle_passt(r.schluessel, profil)} for r in ROLLEN],
+            "hinweise": fehlende_angaben(profil, speicher.rollen),
         })
 
     def _rolle_zeigen(self, rolle: Any, eid: Optional[str], zustaende: dict, verbunden: bool) -> dict:
@@ -163,11 +222,61 @@ class Webserver:
                   "alter_s": _alter(zustand)}
         if zustand.get("state") in ("unavailable", "unknown"):
             daten["warnung"] = "Liefert gerade keinen Wert."
-        elif rolle.einheit and einheit != rolle.einheit:
+        elif rolle.einheiten and not _einheit_erlaubt(einheit, rolle.einheiten):
+            daten["warnung"] = f"Einheit ist {einheit or 'nicht angegeben'}, erlaubt sind {', '.join(rolle.einheiten)}."
+        elif rolle.einheit and einheit != rolle.einheit and not (rolle.fahrenheit and ist_fahrenheit(einheit)):
             daten["warnung"] = f"Einheit ist {einheit or 'nicht angegeben'}, erwartet wird {rolle.einheit}."
         return daten
 
+    async def _profil(self, _: web.Request) -> web.Response:
+        zustaende, verbunden = await self._zustaende_je_id()
+        speicher = self.app.speicher
+        profil = speicher.anlagenprofil
+        return web.json_response({
+            "verbunden": verbunden,
+            "profil": profil.als_dict(),
+            "katalog": katalog(),
+            "zaehler": [_zaehler_zeigen(e, zustaende, verbunden) for e in profil.erzeuger],
+            "hinweise": fehlende_angaben(profil, speicher.rollen),
+        })
+
+    def _im_betrieb_gesperrt(self) -> Optional[web.Response]:
+        """Zuweisungen und Anlage bestimmen, was geschaltet wird. Im Betrieb bleiben sie stehen."""
+        if not self.app.im_betrieb:
+            return None
+        return web.json_response({"fehler": "Im Betrieb nicht änderbar. Bitte erst auf Lauschen schalten."}, status=409)
+
+    async def _betrieb_setzen(self, anfrage: web.Request) -> web.Response:
+        inhalt = await anfrage.json()
+        modus = inhalt.get("modus") if isinstance(inhalt, dict) else None
+        try:
+            if modus == BETRIEB:
+                offen = await self.app.betrieb_anfordern(inhalt.get("bestaetigung"), VERSION)
+                if offen:
+                    return web.json_response({"fehler": "Der Betrieb ist noch nicht erlaubt.",
+                                              "offen": [p.als_dict() for p in offen]}, status=409)
+                return web.json_response({"ok": True, "modus": self.app.modus})
+            if modus == LAUSCHEN:
+                offen = await self.app.lauschen_anfordern()
+                return web.json_response({"ok": True, "modus": self.app.modus, "klappe_offen": offen})
+        except asyncio.TimeoutError:
+            return web.json_response({"fehler": "Die App hat nicht rechtzeitig geantwortet, der Modus bleibt, wie er ist."}, status=503)
+        raise EinstellungsFehler("Unbekannter Modus.")
+
+    async def _profil_speichern(self, anfrage: web.Request) -> web.Response:
+        if (gesperrt := self._im_betrieb_gesperrt()):
+            return gesperrt
+        speicher = self.app.speicher
+        alt = speicher.anlagenprofil.als_dict()
+        profil = speicher.profil_setzen(await anfrage.json())
+        self.app.verlauf.aenderung(time.time(), "anlagenprofil", alt, profil.als_dict())
+        self.app.zuweisung_uebernehmen()    # Die Zähler der Erzeuger werden ab jetzt mitgelesen.
+        self._katalog = (0.0, [])
+        return web.json_response({"ok": True})
+
     async def _rollen_speichern(self, anfrage: web.Request) -> web.Response:
+        if (gesperrt := self._im_betrieb_gesperrt()):
+            return gesperrt
         inhalt = await anfrage.json()
         speicher, alt = self.app.speicher, dict(self.app.speicher.rollen)
         alt_tuer = speicher.tuerkontakt_vorhanden
@@ -197,6 +306,13 @@ class Webserver:
 
     def _feld_zeigen(self, feld: Any) -> dict:
         app, name = self.app, feld.name
+        if name in EIGENE_FELDER:
+            # Nur in der App, ohne Live-Helfer und ohne Wert in der Automation.
+            eigen = app.speicher.eigener_wert(name)
+            return dataclasses.asdict(feld) | {
+                "wert": app.speicher.wirksamer_eigener_wert(name),
+                "quelle": "Eigener Wert der App" if eigen is not None else "Vorgabe",
+                "eigen": eigen is not None, "live": None}
         eigen = app.speicher.parameter_neu.get(name)
         helfer = f"input_number.{app.eingaenge.praefix}_{name}"
         hat_helfer = app.eingaenge.eintrag(helfer) is not None
@@ -206,9 +322,11 @@ class Webserver:
                                             "live": getattr(app.eingaenge.parameter, name)}
 
     async def _parameter(self, _: web.Request) -> web.Response:
+        profil = self.app.speicher.anlagenprofil
         return web.json_response({
-            "themen": [{"titel": titel, "felder": [self._feld_zeigen(f) for f in felder]}
-                       for titel, felder in PARAMETER_THEMEN],
+            "themen": [{"titel": titel, "felder": zeigen}
+                       for titel, felder in PARAMETER_THEMEN
+                       if (zeigen := [self._feld_zeigen(f) for f in felder if feld_passt(f.name, profil)])],
             "regler": [self._feld_zeigen(f) for f in REGLER_FELDER],
             "vorschlag": _vorschlag_zeigen(self.app.autotune_vorschlag),
             "autotune_aktiv_gesperrt": AUTOTUNE_GESPERRT,
@@ -216,7 +334,7 @@ class Webserver:
 
     def _setzen(self, name: str, wert: Any) -> Any:
         speicher = self.app.speicher
-        alt = speicher.parameter_neu.get(name)
+        alt = speicher.eigener_wert(name) if name in EIGENE_FELDER else speicher.parameter_neu.get(name)
         neu = speicher.parameter_setzen(name, wert)
         self.app.verlauf.aenderung(time.time(), name, alt, neu)
         return neu
@@ -244,6 +362,59 @@ class Webserver:
     async def _autotune_aktiv(self, _: web.Request) -> web.Response:
         return web.json_response({"fehler": AUTOTUNE_GESPERRT}, status=409)
 
+    async def _geraete(self) -> tuple[list[dict], bool]:
+        try:
+            return geraete_aus_diensten(await self.app.client.hole_dienste()), True
+        except (VerbindungWeg, aiohttp.ClientError, OSError, asyncio.TimeoutError) as fehler:
+            log.warning("Dienste nicht lesbar: %r", fehler)
+            return [], False
+
+    async def _benachrichtigungen(self, _: web.Request) -> web.Response:
+        geraete, verbunden = await self._geraete()
+        zuordnung = self.app.speicher.benachrichtigungen
+        bekannt = {g["dienst"] for g in geraete}
+        # Gespeicherte Geräte bleiben sichtbar, auch wenn HA sie gerade nicht liefert.
+        fehlend = sorted({d for liste in zuordnung.values() for d in liste} - bekannt)
+        geraete += [{"dienst": d, "name": lesbarer_name(d), "handy": d.startswith("notify.mobile_app_"),
+                     "fehlt": True} for d in fehlend]
+        return web.json_response({
+            "verbunden": verbunden,
+            "arten": [{"schluessel": a.schluessel, "titel": a.titel, "hilfe": a.hilfe, "dringend": a.dringend}
+                      for a in ARTEN],
+            "geraete": geraete,
+            "zuordnung": zuordnung,
+        })
+
+    async def _benachrichtigungen_speichern(self, anfrage: web.Request) -> web.Response:
+        inhalt = await anfrage.json()
+        speicher = self.app.speicher
+        alt = speicher.benachrichtigungen
+        neu = speicher.benachrichtigungen_setzen(inhalt.get("zuordnung") if isinstance(inhalt, dict) else None)
+        self.app.verlauf.aenderung(time.time(), "benachrichtigungen", alt, neu)
+        return web.json_response({"ok": True, "zuordnung": neu})
+
+    async def _benachrichtigung_test(self, anfrage: web.Request) -> web.Response:
+        inhalt = await anfrage.json()
+        dienst = inhalt.get("dienst") if isinstance(inhalt, dict) else None
+        if not dienst_gueltig(dienst):
+            raise EinstellungsFehler("Das ist kein Gerät für Nachrichten.")
+        try:
+            await self.app.client.sende_notify(
+                dienst, "🔥 Kamin – Testnachricht", "Das ist eine Testnachricht der Kamin-App. Sie kam an.")
+        except (VerbindungWeg, aiohttp.ClientError, OSError, asyncio.TimeoutError) as fehler:
+            log.warning("Testnachricht an %s fehlgeschlagen: %r", dienst, fehler)
+            return web.json_response(
+                {"fehler": "Die Testnachricht ging nicht raus. Ist das Gerät in Home Assistant erreichbar?"}, status=502)
+        return web.json_response({"ok": True})
+
+    async def _reinigung_bestaetigen(self, _: web.Request) -> web.Response:
+        if not self.app.speicher.anlagenprofil.wassergefuehrt:
+            raise EinstellungsFehler("Die Reinigungserinnerung gibt es nur bei wassergeführtem Ofen.")
+        alt = self.app.speicher.wartungsstand
+        await self.app.reinigung_bestaetigen()
+        self.app.verlauf.aenderung(time.time(), "reinigung", alt.letzte_reinigung, self.app.speicher.wartungsstand.letzte_reinigung)
+        return web.json_response({"ok": True, "reinigung": ansicht.reinigung_zeigen(self.app)})
+
     async def _service(self, _: web.Request) -> web.Response:
         app = self.app
         stand = ansicht.status(app)
@@ -270,6 +441,10 @@ class Webserver:
         daten = ansicht.status(self.app)
         p = self.app.parameter_neu
         self.app.parameter_neu_auffrischen()
+        a = daten.get("amortisation") or {}
+        daten |= {"amortisation_prozent": None if a.get("prozent") is None else round(a["prozent"], 1),
+                  "amortisation_netto": None if a.get("netto_eur") is None else round(a["netto_eur"], 2),
+                  "waehrung": a.get("waehrung"), "wasser_status": (daten.get("wasser") or {}).get("stufe", "aus")}
         daten |= {"kp": p.regler_verstaerkung, "tn": p.regler_nachstellzeit, "kd": p.regler_vorhaltung,
                   "version": VERSION, "autotune_vorschlag": _vorschlag_zeigen(self.app.autotune_vorschlag)}
         return web.json_response(daten)
@@ -290,18 +465,54 @@ class Webserver:
         if name == "autotune_aktiv":
             return web.json_response({"fehler": AUTOTUNE_GESPERRT}, status=409)
         if name in _BEOBACHTUNG_GESPERRT:
-            return web.json_response({"fehler": BEOBACHTUNG_TEXT}, status=409)
+            return await self._befehl_im_modus(name, wert)
         return web.json_response({"fehler": "Unbekannter Befehl."}, status=400)
+
+    async def _befehl_im_modus(self, name: str, wert: Any) -> web.Response:
+        """Im Lauschen immer gesperrt. Im Betrieb nur, was die App wirklich ausführen kann."""
+        if not self.app.im_betrieb:
+            return web.json_response({"fehler": BEOBACHTUNG_TEXT}, status=409)
+        if name in _IM_BETRIEB_PARAMETER:
+            self._setzen(name, wert)
+            return web.json_response({"ok": True})
+        if name == "fuehler_neustart":
+            if not self.app.fuehler_neustart_moeglich():
+                return web.json_response({"fehler": "Für den Fühler-Neustart ist kein Ausgang zugewiesen."}, status=409)
+            if not await self.app.fuehler_neustart():
+                return web.json_response({"fehler": "Der Fühler-Neustart ging nicht durch."}, status=502)
+            return web.json_response({"ok": True})
+        return web.json_response({"fehler": BETRIEB_NUR_HA_TEXT}, status=409)
 
 
 _NUR_APP = {"kp": "regler_verstaerkung", "tn": "regler_nachstellzeit", "kd": "regler_vorhaltung"}
 _BEOBACHTUNG_GESPERRT = {"handbetrieb", "wartung", "leistung", "klappe_manuell", "t_ziel", "fuehler_neustart"}
+_IM_BETRIEB_PARAMETER = ("klappe_manuell", "t_ziel")
 
 
 def _alter(zustand: dict) -> Optional[float]:
     from anbindung.eingaenge import _zeitstempel
     stempel = _zeitstempel(zustand.get("last_reported")) or _zeitstempel(zustand.get("last_updated"))
     return round(max(0.0, time.time() - stempel), 1) if stempel else None
+
+
+def _einheit_erlaubt(einheit: Any, erlaubt: tuple[str, ...]) -> bool:
+    return isinstance(einheit, str) and einheit.strip().casefold() in {e.casefold() for e in erlaubt}
+
+
+def _zaehler_zeigen(erzeuger: Erzeuger, zustaende: dict, verbunden: bool) -> dict:
+    daten: dict[str, Any] = {"wert": None, "einheit": None, "kwh": None, "warnung": None}
+    if not erzeuger.zaehler or not verbunden:
+        return daten
+    zustand = zustaende.get(erzeuger.zaehler)
+    if zustand is None:
+        return daten | {"warnung": "Diese Entität gibt es nicht."}
+    einheit = (zustand.get("attributes") or {}).get("unit_of_measurement")
+    daten |= {"wert": zustand.get("state"), "einheit": einheit}
+    if zustand.get("state") in ("unavailable", "unknown"):
+        return daten | {"warnung": "Liefert gerade keinen Wert."}
+    if einheit_normal(einheit) != erzeuger.zaehler_einheit:
+        return daten | {"warnung": f"Der Sensor meldet {einheit or 'keine Einheit'}, eingestellt ist {erzeuger.zaehler_einheit}."}
+    return daten | {"kwh": zaehler_nach_kwh(erzeuger, als_zahl(zustand.get("state")))}
 
 
 def _vorschlag_zeigen(vorschlag: Any) -> Optional[dict]:

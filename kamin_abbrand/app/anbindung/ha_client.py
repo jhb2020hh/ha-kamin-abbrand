@@ -1,18 +1,22 @@
 """Verbindung zu Home Assistant über den Supervisor-Proxy.
 
 Lesen: WebSocket mit get_states und subscribe_events (state_changed).
-Schreiben: ausschließlich POST /api/states/sensor.kamin_app_*.
+Schreiben: POST /api/states/sensor.kamin_app_*, Nachrichten über den Dienst notify.<name>
+und, ausschließlich im Betrieb, feste Dienste auf den zugewiesenen Ausgängen.
+Die Liste der Dienste wird nur gelesen (GET /api/services).
 
 Die Schreibsperre ist Absicht: Der Zugang des Supervisors hat Administratorrechte,
 deshalb liegt die Grenze hier im Client. Es gibt keine Methode, die irgendetwas
 anderes in Home Assistant auslöst, und WebSocket-Befehle laufen durch eine Positivliste.
+Ein Dienst wird nur aufgerufen, wenn sein Name vollständig auf notify.[a-z0-9_]+ passt
+oder wenn `schalte` ihn durchlässt: Betrieb freigegeben, Entität zugewiesen, Dienst in der festen Liste.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Iterable, Optional
 
 import aiohttp
 
@@ -23,7 +27,22 @@ REST_URL = "http://supervisor/core/api"
 
 # Vollständiges Muster statt startswith: Die ID landet im URL-Pfad.
 _SCHATTEN_MUSTER = re.compile(r"sensor\.kamin_app_[a-z0-9_]+")
+_NOTIFY_MUSTER = re.compile(r"notify\.[a-z0-9_]+")
+_ENTITAET_MUSTER = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
 _ERLAUBTE_WS_BEFEHLE = frozenset({"get_states", "subscribe_events"})
+# Domain und Dienst mit den Feldern, die mitgehen dürfen. Sonst ist nichts schaltbar:
+# Eine Pumpe (switch.turn_on) oder ein homeassistant.restart kann hier nicht durch.
+_ERLAUBTE_DIENSTE: dict[tuple[str, str], frozenset[str]] = {
+    ("cover", "set_cover_position"): frozenset({"position"}),
+    ("light", "turn_on"): frozenset({"brightness_pct", "transition"}),
+    ("light", "turn_off"): frozenset(),
+    ("number", "set_value"): frozenset({"value"}),
+    ("input_number", "set_value"): frozenset({"value"}),
+    ("input_boolean", "turn_off"): frozenset(),
+    ("switch", "turn_off"): frozenset(),
+    ("button", "press"): frozenset(),
+    ("script", "turn_on"): frozenset(),
+}
 
 BACKOFF_START_S = 1.0
 BACKOFF_MAX_S = 60.0
@@ -81,6 +100,8 @@ class HaClient:
         self._naechste_id = 1
         self._offen: dict[int, asyncio.Future] = {}
         self._verbunden = False
+        self._betrieb_aktiv = False
+        self._ausgaenge: frozenset[str] = frozenset()
 
     @property
     def verbunden(self) -> bool:
@@ -244,3 +265,68 @@ class HaClient:
                     antwort.request_info, antwort.history, status=antwort.status,
                     message=f"Schreiben von {entity_id} fehlgeschlagen",
                 )
+
+    async def hole_dienste(self) -> list[dict]:
+        """Liest die Dienste von Home Assistant (nur lesen). Wirft aiohttp-Fehler oder TimeoutError."""
+        async with self._hole_sitzung().get(
+            f"{self._rest_url}/services",
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=aiohttp.ClientTimeout(total=self._rest_timeout_s),
+        ) as antwort:
+            antwort.raise_for_status()
+            daten = await antwort.json()
+        return daten if isinstance(daten, list) else []
+
+    async def sende_notify(
+        self, dienst: str, titel: str, text: str, daten: Optional[dict] = None
+    ) -> None:
+        """Schickt eine Nachricht. Wirft SchreibsperreFehler, wenn `dienst` kein notify.<name> ist."""
+        if not isinstance(dienst, str) or not _NOTIFY_MUSTER.fullmatch(dienst):
+            raise SchreibsperreFehler(f"Dienst nicht erlaubt: {dienst!r}")
+        inhalt: dict[str, Any] = {"title": titel, "message": text}
+        if daten:
+            inhalt["data"] = daten
+        async with self._hole_sitzung().post(
+            f"{self._rest_url}/services/notify/{dienst.split('.', 1)[1]}",
+            json=inhalt,
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=aiohttp.ClientTimeout(total=self._rest_timeout_s),
+        ) as antwort:
+            antwort.raise_for_status()
+
+    # ---- Schalten, nur im Betrieb ---------------------------------------
+
+    @property
+    def betrieb_aktiv(self) -> bool:
+        return self._betrieb_aktiv
+
+    def betrieb_freigeben(self, ausgaenge: Iterable[str]) -> None:
+        """Öffnet `schalte` für genau diese Entitäten. Eine neue Liste ersetzt die alte."""
+        self._ausgaenge = frozenset(ausgaenge)
+        self._betrieb_aktiv = True
+
+    def betrieb_sperren(self) -> None:
+        self._betrieb_aktiv = False
+        self._ausgaenge = frozenset()
+
+    async def schalte(self, domain: str, dienst: str, entity_id: str, daten: Optional[dict] = None) -> None:
+        """Ruft einen Dienst auf einem zugewiesenen Ausgang auf. Wirft SchreibsperreFehler,
+        bevor etwas den Server erreicht, wenn eine der Bedingungen nicht stimmt."""
+        if not self._betrieb_aktiv:
+            raise SchreibsperreFehler("Schalten ist nur im Betrieb möglich.")
+        felder = _ERLAUBTE_DIENSTE.get((domain, dienst)) if isinstance(domain, str) and isinstance(dienst, str) else None
+        if felder is None:
+            raise SchreibsperreFehler(f"Dienst nicht erlaubt: {domain!r}.{dienst!r}")
+        if (not isinstance(entity_id, str) or not _ENTITAET_MUSTER.fullmatch(entity_id)
+                or entity_id not in self._ausgaenge or entity_id.split(".", 1)[0] != domain):
+            raise SchreibsperreFehler(f"Kein zugewiesener Ausgang: {entity_id!r}")
+        daten = daten or {}
+        if not set(daten) <= felder:
+            raise SchreibsperreFehler(f"Felder nicht erlaubt: {sorted(set(daten) - felder)}")
+        async with self._hole_sitzung().post(
+            f"{self._rest_url}/services/{domain}/{dienst}",
+            json={**daten, "entity_id": entity_id},
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=aiohttp.ClientTimeout(total=self._rest_timeout_s),
+        ) as antwort:
+            antwort.raise_for_status()

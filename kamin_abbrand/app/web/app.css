@@ -35,6 +35,15 @@ main { padding: 20px 24px 60px; max-width: 980px; width: 100% }
 .raster { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px }
 .raster .karte { margin: 0 }
 .kopf { margin-bottom: 14px }
+.unter { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 14px; border-bottom: 1px solid var(--line); -webkit-overflow-scrolling: touch }
+.unter[hidden] { display: none }
+.unter button { flex: none; white-space: nowrap; background: none; border: 0; border-bottom: 3px solid transparent; padding: 9px 12px; color: var(--muted); font: inherit; cursor: pointer }
+.unter button:hover { color: var(--fg) }
+.unter button[aria-current="page"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--akzent) }
+.umschalter { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; max-width: 100% }
+.umschalter button { font: inherit; padding: 9px 16px; background: none; color: var(--muted); border: 0; cursor: pointer }
+.umschalter button + button { border-left: 1px solid var(--line) }
+.umschalter button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600 }
 
 /* Status */
 .status { display: flex; gap: 16px; align-items: flex-start }
@@ -66,8 +75,8 @@ button.haupt, button.neben { font: inherit; padding: 8px 14px; border-radius: 6p
 button.haupt { background: var(--akzent); color: #fff; border-color: var(--akzent); font-weight: 600 }
 button.neben { background: none; color: inherit }
 button:disabled { opacity: .55; cursor: not-allowed }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px }
-input[type=text], input[type=number] { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100% }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px }
+input[type=text], input[type=number], select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100% }
 input[type=range] { width: 100%; accent-color: var(--akzent) }
 .chip { display: inline-block; font-size: .72rem; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap }
 .chip.pflicht { color: var(--crit); border-color: var(--crit) } .chip.empfohlen { color: var(--warn); border-color: var(--warn) }
@@ -85,6 +94,10 @@ input[type=range] { width: 100%; accent-color: var(--akzent) }
 .warnung { color: var(--warn); font-size: .84rem; margin-top: 4px }
 .schalter { display: flex; gap: 10px; align-items: center; cursor: pointer }
 .schalter input { width: 18px; height: 18px; accent-color: var(--akzent) }
+.schalter + .schalter { margin-top: 10px }
+.angaben { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 14px; margin-top: 10px }
+.angabe { display: block; min-width: 0 } .angabe .eingabe { display: flex; align-items: center; gap: 6px }
+.erzeuger { padding: 12px 0; border-top: 1px solid var(--line) } .erzeuger:first-of-type { border-top: 0 }
 .leiste { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; display: flex; justify-content: flex-end; gap: 8px }
 
 .feld { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 4px 18px; padding: 11px 0; border-top: 1px solid var(--line); align-items: center }
@@ -123,3 +136,27 @@ code { font-size: .85em; word-break: break-all }
   .rolle, .feld { grid-template-columns: minmax(0, 1fr) }
   .status h1 { font-size: 1.4rem } .band span { font-size: .68rem }
 }
+
+/* Matrix der Benachrichtigungen: am Handy seitlich wischbar, erste Spalte bleibt stehen */
+.matrix { overflow-x: auto; -webkit-overflow-scrolling: touch }
+.matrix table { border-collapse: collapse; min-width: 100% }
+.matrix th, .matrix td { padding: 10px 8px; border-top: 1px solid var(--line); text-align: center; vertical-align: top }
+.matrix thead th { border-top: 0; min-width: 118px; font-weight: 600 }
+.matrix th:first-child { text-align: left; position: sticky; left: 0; background: var(--panel); min-width: 150px; max-width: 200px; font-weight: 600; z-index: 1 }
+.matrix th[scope="row"] .chip { margin-left: 6px }
+.matrix th[scope="row"] .leise { font-weight: 400 }
+.matrix td { vertical-align: middle }
+.matrix input[type="checkbox"] { width: 24px; height: 24px; accent-color: var(--akzent) }
+.matrix .geraet { overflow-wrap: anywhere }
+.matrix .leise { overflow-wrap: anywhere }
+button.klein { padding: 6px 10px; font-size: .84rem; margin-top: 6px }
+.banner.betrieb { border-left-color: var(--akzent) }
+.betrieb-kopf { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between }
+.betrieb-liste { margin: 8px 0 0 18px; padding: 0 }
+.betrieb-liste li { margin: 4px 0 }
+.betrieb-frage { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line) }
+.matrix table.kosten thead th { min-width: 0; font-size: .85rem; padding: 8px 4px } .matrix table.kosten td { padding: 10px 4px; white-space: nowrap }
+.matrix table.kosten th:first-child { min-width: 90px; padding-left: 0 } .matrix table.kosten th:first-child .chip { margin: 4px 0 0; display: block; width: fit-content }
+.matrix table.tage th:first-child .chip { display: inline-block; margin-left: 4px }
+.matrix table.tage td, .matrix table.tage thead th { font-size: .82rem; padding-left: 3px; padding-right: 3px }
+.vorschlagbox { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px }

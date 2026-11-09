@@ -131,3 +131,28 @@ def test_verlauf_loescht_nach_30_tagen_und_nur_eigene_dateien(tmp_path):
 
 def test_verlauf_ueberlebt_plattenfehler(tmp_path):
     Verlauf(tmp_path / "fehlt").schreiben(PARITAET, Eingaben(jetzt=JETZT, t=1.0), ergebnis())
+
+
+def test_sensor_reinigung_zustaende_und_attribute():
+    from kern import wartung
+
+    async def ablauf():
+        aufrufe = []
+
+        async def schreiber(eid, wert, attribute):
+            aufrufe.append((eid, wert, attribute))
+
+        schatten = Schatten(schreiber)
+        stand = wartung.Stand(basis_s=0)
+        await schatten.reinigung(wartung.pruefen(40 * 3600, stand, 100), None, JETZT)
+        await schatten.reinigung(wartung.pruefen(100 * 3600, stand, 100), JETZT - 86400, JETZT + 1)
+        await schatten.reinigung(wartung.pruefen(100 * 3600, stand, 0), None, JETZT + 2)
+        assert [(e, w) for e, w, _ in aufrufe] == [("sensor.kamin_app_wt_reinigung", "ok"),
+                                                   ("sensor.kamin_app_wt_reinigung", "faellig"),
+                                                   ("sensor.kamin_app_wt_reinigung", "aus")]
+        ok, faellig, aus = (a for _, _, a in aufrufe)
+        assert ok["reststunden"] == 60 and ok["intervall_stunden"] == 100 and ok["letzte_reinigung"] is None
+        assert faellig["reststunden"] == 0 and faellig["letzte_reinigung"].startswith("2026-11-05")
+        assert "reststunden" not in aus
+
+    asyncio.run(ablauf())

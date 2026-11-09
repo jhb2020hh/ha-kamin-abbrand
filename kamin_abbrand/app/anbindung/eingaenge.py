@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Iterable, Optional
 
 from anbindung.ableitung import Ableitung
+from anbindung.anlagenprofil import temperatur_nach_c
 from kern.typen import (
     BEDIENUNG,
     PHASEN,
@@ -111,6 +112,8 @@ class Eingaenge:
                 f"input_number.{praefix}_regler_i_anteil",
                 f"input_number.{praefix}_klappe_soll",
                 f"input_select.{praefix}_leistungsmodus",
+                f"input_boolean.{praefix}_klappe_invertiert",
+                f"input_number.{praefix}_aktor_y0",
                 *self._parameter_ids, *zusatz,
             ) if eid
         }
@@ -182,7 +185,7 @@ class Eingaenge:
 
         if eid == self.ent.abgas:
             self._abgas_verfolgen(wert, geaendert)
-            zahl = als_zahl(wert)
+            zahl = self.temperatur_c(eid)
             if zahl is not None:
                 self.ableitung.abgas(gemeldet, zahl)
         elif eid == self.ent.druck:
@@ -249,7 +252,7 @@ class Eingaenge:
         dp_alter = None if self._druck_zeit is None else max(0.0, jetzt - self._druck_zeit)
         return Eingaben(
             jetzt=jetzt,
-            t=self._zahl(self.ent.abgas),
+            t=self.temperatur_c(self.ent.abgas),
             t_alter_s=t_alter,
             g=self._zahl(self.ent.gradient) or 0.0 if self.ent.gradient else self.ableitung.gradient(jetzt),
             tmax3=self._zahl(self.ent.t_max_3min) if self.ent.t_max_3min else self.ableitung.t_max_3min(jetzt),
@@ -276,6 +279,12 @@ class Eingaenge:
 
     def zahl(self, eid: Optional[str]) -> Optional[float]:
         return self._zahl(eid)
+
+    def temperatur_c(self, eid: Optional[str]) -> Optional[float]:
+        """Temperatur in °C, auch wenn der Sensor laut unit_of_measurement °F meldet."""
+        eintrag = self.eintrag(eid)
+        zahl = als_zahl(eintrag.zustand) if eintrag else None
+        return None if zahl is None else temperatur_nach_c(zahl, eintrag.attribute.get("unit_of_measurement"))
 
     def stellung(self, eid: Optional[str]) -> Optional[float]:
         """Stellung in %. Cover und Licht melden sie im Attribut, nicht im Zustand."""

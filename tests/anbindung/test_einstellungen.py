@@ -1,5 +1,6 @@
 """Einstellungen, Migration, Ableitungen, Wechsel zur Laufzeit, Start ohne Helfer."""
 import asyncio
+import dataclasses
 import json
 from functools import partial
 from pathlib import Path
@@ -57,8 +58,7 @@ def test_rollen_pruefung(tmp_path, rollen, text):
 
 
 @pytest.mark.parametrize("ausgang, eid", [("ausgang_klappe", "cover.k"), ("ausgang_klappe", "input_number.k"),
-                                          ("ausgang_heartbeat", "number.h"), ("ausgang_neustart", "script.n"),
-                                          ("ausgang_meldungen", "notify.handy")])
+                                          ("ausgang_heartbeat", "number.h"), ("ausgang_neustart", "script.n")])
 def test_ausgaenge_sind_zuweisbar(tmp_path, ausgang, eid):
     s = Speicher(tmp_path / "e.json")
     s.rollen_setzen({ausgang: eid}, True)
@@ -75,6 +75,113 @@ def test_parametergrenzen_und_zuruecknehmen(tmp_path):
         s.parameter_setzen("gibt_es_nicht", 1)
     s.parameter_setzen("regler_verstaerkung", None)
     assert s.parameter_neu == {}
+
+
+BESTAND = {"rollen": {"abgas": "sensor.a", "t_wt": "sensor.w", "puffer_unten": "sensor.p"}, "tuerkontakt_vorhanden": False,
+           "parameter_neu": {"t_ziel": 200.0}, "betrieb_s": 1234.5, "token": "geheim-und-lang", "kuenftig": {"x": 1}}
+
+
+def test_bestehende_datei_laedt_ohne_datenverlust(tmp_path):
+    pfad = tmp_path / "e.json"
+    pfad.write_text(json.dumps(BESTAND), encoding="utf-8")
+    s = Speicher(pfad)
+    assert s.anlagenprofil.wassergefuehrt and s.anlagenprofil.puffer and s.anlagenprofil.tuerkontakt is False
+    s.speichern()
+    gelesen = json.loads(pfad.read_text(encoding="utf-8"))
+    assert {k: gelesen[k] for k in BESTAND} == BESTAND and "anlagenprofil" in gelesen
+
+
+def test_neue_rollen_sind_zuweisbar_aber_kein_kern_eingang(tmp_path):
+    rollen = {"vorlauf": "sensor.v", "ruecklauf": "sensor.r", "pumpe": "binary_sensor.p", "puffer_oben": "sensor.po",
+              "waermezaehler": "sensor.wz", "energiezaehler": "sensor.ez", "t_aussen": "sensor.ta"}
+    s = Speicher(tmp_path / "e.json")
+    s.rollen_setzen(rollen, True)
+    assert s.rollen == rollen
+    ent = dataclasses.asdict(s.entitaeten())
+    assert not set(rollen) & set(ent) and not set(rollen.values()) & set(ent.values())
+
+
+def test_profil_speichern_und_neu_laden(tmp_path):
+    pfad = tmp_path / "e.json"
+    s = Speicher(pfad)
+    s.rollen_setzen({"abgas": "sensor.a", "t_wt": "sensor.w"}, True)
+    p = s.profil_setzen({"ofen": "luftgefuehrt", "tuerkontakt": False, "waehrung": "CHF",
+                         "erzeuger": [{"art": "erdgas", "anteil": 100}]})
+    # Das Umstellen auf luftgeführt löscht keine Zuweisung.
+    neu = Speicher(pfad)
+    assert neu.anlagenprofil == p and neu.rollen["t_wt"] == "sensor.w"
+    assert neu.tuerkontakt_vorhanden is False and "tuerkontakt" not in neu.daten["anlagenprofil"]
+
+
+def test_tuerkontakt_gibt_es_nur_einmal(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    s.profil_setzen({"ofen": "luftgefuehrt"})
+    s.tuerkontakt_setzen(False)
+    assert s.anlagenprofil.tuerkontakt is False
+    s.profil_setzen({"ofen": "luftgefuehrt"})     # Ohne Angabe bleibt, was gilt.
+    assert s.tuerkontakt_vorhanden is False
+
+
+def test_ungueltiges_profil_aendert_nichts(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    vorher = dict(s.daten)
+    with pytest.raises(EinstellungsFehler, match="Ofenart"):
+        s.profil_setzen({"ofen": "unbekannt"})
+    with pytest.raises(EinstellungsFehler):
+        s.profil_setzen("kein objekt")
+    assert s.daten == vorher
+
+
+@pytest.mark.parametrize("kaputt", [{"ofen": "unbekannt"}, "kein objekt", {"ofen": "luftgefuehrt", "erzeuger": [{"art": "kohle"}]}])
+def test_kaputtes_gespeichertes_profil_bleibt_erhalten(tmp_path, kaputt):
+    pfad = tmp_path / "e.json"
+    pfad.write_text(json.dumps(BESTAND | {"anlagenprofil": kaputt}), encoding="utf-8")
+    s = Speicher(pfad)
+    assert s.anlagenprofil.wassergefuehrt       # Ableitung aus den Rollen
+    s.speichern()
+    assert json.loads(pfad.read_text(encoding="utf-8"))["anlagenprofil"] == kaputt
+
+
+def test_abgas_in_fahrenheit_erreicht_den_kern_in_celsius():
+    ein = Eingaenge(Entitaeten(abgas="sensor.a"), "kamin_abbrand")
+    ein.aufbauen([{"entity_id": "sensor.a", "state": "212", "attributes": {"unit_of_measurement": "°F"}}], 1000.0)
+    assert ein.eingaben(1000.0, "tick").t == pytest.approx(100.0)
+    assert ein.temperatur_c("sensor.a") == pytest.approx(100.0)
+    ein.aufbauen([{"entity_id": "sensor.a", "state": "392", "attributes": {"unit_of_measurement": "°F"}}], 1060.0)
+    assert ein.ableitung.t_max_3min(1060.0) == pytest.approx(200.0)
+
+
+def test_abgas_in_celsius_bleibt_unveraendert():
+    ein = Eingaenge(Entitaeten(abgas="sensor.a"), "kamin_abbrand")
+    ein.aufbauen([{"entity_id": "sensor.a", "state": "213.37", "attributes": {"unit_of_measurement": "°C"}}], 1000.0)
+    assert ein.eingaben(1000.0, "tick").t == 213.37
+    ein.aufbauen([{"entity_id": "sensor.a", "state": "unavailable"}], 1001.0)
+    assert ein.eingaben(1001.0, "tick").t is None and ein.temperatur_c("sensor.a") is None
+
+
+def test_neue_temperaturen_werden_umgerechnet_und_alte_kerneingaenge_nicht():
+    ent = Entitaeten(t_wt="sensor.w", puffer_unten="sensor.p")
+    ein = Eingaenge(ent, "kamin_abbrand", ("sensor.v",))
+    f = {"unit_of_measurement": "°F"}
+    ein.aufbauen([{"entity_id": e, "state": "212", "attributes": f} for e in ("sensor.v", "sensor.w", "sensor.p")], 1000.0)
+    assert ein.temperatur_c("sensor.v") == pytest.approx(100.0)
+    e = ein.eingaben(1000.0, "tick")
+    assert e.twt_roh == 212 and e.puffer_unten == 212
+
+
+def _app_ohne_verbindung(tmp_path, speicher):
+    return App(partial(HaClient, TOKEN), Eingaenge(speicher.entitaeten(), "kamin_abbrand"), Verlauf(tmp_path),
+               steuerung_fabrik=steuerung_aus_kern, speicher=speicher)
+
+
+def test_zusatz_liest_neue_rollen_und_erzeugerzaehler_nur_passend_zum_profil(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    s.rollen_setzen({"abgas": "sensor.a", "vorlauf": "sensor.v", "t_aussen": "sensor.ta", "klappe_ist": "cover.k"}, True)
+    s.profil_setzen({"ofen": "wassergefuehrt", "erzeuger": [{"art": "erdgas", "zaehler": "sensor.gas", "zaehler_einheit": "m³"}]})
+    app = _app_ohne_verbindung(tmp_path, s)
+    assert set(app.zusatz_entitaeten()) == {"sensor.v", "sensor.ta", "cover.k", "sensor.gas"}
+    s.profil_setzen({"ofen": "luftgefuehrt", "erzeuger": []})
+    assert set(app.zusatz_entitaeten()) == {"sensor.ta", "cover.k"}
 
 
 def test_ableitung_gegen_echte_werte():
@@ -119,7 +226,11 @@ def test_schreibsperre_ohne_zusatzweg():
     ordner = Path(__file__).parents[2] / "kamin_abbrand" / "app" / "anbindung"
     for pfad in ordner.glob("*.py"):
         text = pfad.read_text(encoding="utf8")
-        assert "call_service" not in text and "/services/" not in text, pfad
+        assert "call_service" not in text, pfad
+        # Dienste gibt es nur für notify.<name> und für schalte im Betrieb, und nur im Client.
+        assert pfad.name == "ha_client.py" or "/services/" not in text, pfad
+        assert text.count("/services/") == (2 if pfad.name == "ha_client.py" else 0), pfad
+        assert ("/services/notify/" in text and "/services/{domain}/{dienst}" in text) or pfad.name != "ha_client.py"
 
 
 def _app(ha, tmp_path, speicher, praefix="kamin_abbrand", **weiteres):
@@ -215,3 +326,13 @@ def test_tuerkontakt_aus_gilt_nur_fuer_neu(tmp_path):
             assert je[NEU].tuer_offen is False and je[NEU].tuerkontakt_vorhanden is False
             assert je[PARITAET].tuer_offen is True
     asyncio.run(ablauf())
+
+
+def test_entfallene_rolle_ausgang_meldungen_stoert_beim_laden_nicht(tmp_path):
+    import json
+    pfad = tmp_path / "e.json"
+    pfad.write_text(json.dumps({"rollen": {"abgas": "sensor.a", "ausgang_meldungen": "notify.handy"}}), encoding="utf-8")
+    s = Speicher(pfad)
+    assert s.rollen == {"abgas": "sensor.a"}
+    s.rollen_setzen(s.rollen, True)
+    assert "ausgang_meldungen" not in json.loads(pfad.read_text(encoding="utf-8"))["rollen"]

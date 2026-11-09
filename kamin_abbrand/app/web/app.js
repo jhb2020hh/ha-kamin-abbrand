@@ -35,6 +35,58 @@ let toastUhr;
 function toast(text) { const t = document.getElementById("toast"); t.textContent = text; t.classList.add("zeigen"); clearTimeout(toastUhr); toastUhr = setTimeout(() => t.classList.remove("zeigen"), 3200); }
 const melden = (f) => toast(f.message || String(f));
 
+// ---- Lauschen und Betrieb ----------------------------------------------
+// Die Oberfläche zeigt nur an. Ob der Betrieb erlaubt ist, entscheidet der Server.
+let modus = null;
+let betriebWahl = null;
+const bestaetigung = { co_melder: false, hersteller: false, verantwortung: false, ohne_watchdog: false };
+const BESTAETIGUNG_TEXTE = [
+  ["co_melder", "Im Aufstellraum hängt ein funktionierender CO-Melder."],
+  ["hersteller", "Der Betrieb ist mit dem Ofenhersteller oder dem Schornsteinfeger geklärt."],
+  ["verantwortung", "Ich nutze die Steuerung auf eigene Verantwortung. Eine falsche Klappenstellung kann das Feuer ersticken, dabei entsteht Kohlenmonoxid."]];
+function modusAnzeigen(neu) {
+  modus = neu;
+  const b = document.getElementById("banner");
+  b.hidden = false;
+  b.classList.toggle("betrieb", neu === "betrieb");
+  b.replaceChildren(...(neu === "betrieb"
+    ? [h("b", {}, "Betrieb."), " Die App steuert die Klappe. Bei jeder Störung fährt sie auf 100 % und geht zurück auf Lauschen."]
+    : [h("b", {}, "Lauschen."), " Die App rechnet mit und zeigt an. Sie schaltet nichts."]));
+}
+const imBetrieb = () => modus === "betrieb";
+function haken(name, text) {
+  return h("label", { klasse: "schalter" }, h("input", { type: "checkbox", checked: bestaetigung[name], onchange: (e) => { bestaetigung[name] = e.target.checked; } }), h("span", {}, text));
+}
+async function betriebSenden(ziel) {
+  try {
+    const antwort = await api("api/betrieb", ziel === "betrieb" ? { modus: ziel, bestaetigung } : { modus: ziel });
+    betriebWahl = null;
+    toast(ziel === "betrieb" ? "Betrieb: Die App steuert jetzt die Klappe." : antwort.klappe_offen ? "Lauschen: Die Klappe steht auf 100 %." : "Lauschen: Die Klappe konnte nicht geöffnet werden, bitte prüfen!");
+  } catch (f) { melden(f); }
+  aktualisieren();
+}
+function betriebKarte(s) {
+  const b = s.betrieb, aktiv = s.modus === "betrieb";
+  if (betriebWahl === s.modus) betriebWahl = null;
+  const knopf = (wert, text) => h("button", { type: "button", "aria-pressed": String(s.modus === wert), onclick: () => { betriebWahl = s.modus === wert ? null : wert; aktualisieren(); } }, text);
+  const frageBetrieb = betriebWahl === "betrieb" && h("div", { klasse: "betrieb-frage" },
+    b.offene_punkte.length > 0 && [h("b", {}, "Das fehlt noch, damit die App die Klappe steuern darf:"), h("ul", { klasse: "betrieb-liste" }, b.offene_punkte.map((p) => h("li", {}, p.text)))],
+    !b.bestaetigt && [h("p", { stil: "margin-top:10px" }, h("b", {}, "Einmalig bestätigen")), ...BESTAETIGUNG_TEXTE.map(([n, t]) => haken(n, t))],
+    !b.watchdog_zugewiesen && !b.ohne_watchdog_bestaetigt && haken("ohne_watchdog", "Es ist kein Watchdog zugewiesen. Ich bestätige, dass die Klappe bei einem Ausfall nicht schließen kann."),
+    h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: () => betriebSenden("betrieb") }, "Betrieb einschalten"), " ", h("button", { klasse: "textknopf", onclick: () => { betriebWahl = null; aktualisieren(); } }, "Abbrechen")));
+  const frageLauschen = betriebWahl === "lauschen" && h("div", { klasse: "betrieb-frage" },
+    h("p", {}, "Die Klappe fährt auf 100 %, danach steuert die App nichts mehr. Schalte die Automation wieder ein, wenn sie übernehmen soll."),
+    h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: () => betriebSenden("lauschen") }, "Auf Lauschen schalten"), " ", h("button", { klasse: "textknopf", onclick: () => { betriebWahl = null; aktualisieren(); } }, "Abbrechen")));
+  return h("div", { klasse: "karte", stil: (b.stoerung || (!aktiv && b.rueckfall)) ? "--farbe:var(--fehler)" : null },
+    h("div", { klasse: "betrieb-kopf" },
+      h("div", {}, h("h2", {}, "Klappensteuerung"), h("div", { klasse: "leise" }, aktiv ? "Die App stellt die Klappe." : "Die App rechnet nur mit.")),
+      h("div", { klasse: "umschalter", role: "group", "aria-label": "Modus der App" }, knopf("lauschen", "Lauschen"), knopf("betrieb", "Betrieb"))),
+    aktiv && b.anlaufschutz && h("p", { klasse: "leise", stil: "margin-top:8px" }, "Anlaufschutz: Die Klappe bleibt offen, bis der Ofen eingeordnet oder kalt ist."),
+    b.stoerung && h("p", { klasse: "warnung", stil: "margin-top:8px" }, b.stoerung),
+    !aktiv && b.rueckfall && h("p", { klasse: "warnung", stil: "margin-top:8px" }, `Zurückgefallen auf Lauschen (${uhr(b.rueckfall.zeit)}): ${b.rueckfall.grund}${b.rueckfall.klappe_offen ? " Die Klappe steht auf 100 %." : " Die Klappe konnte nicht geöffnet werden!"}`),
+    frageBetrieb, frageLauschen);
+}
+
 // ---- Start -------------------------------------------------------------
 let infoOffen = false;
 function wertKarte(titel, gross, einheit, zusatz, balken) {
@@ -69,13 +121,34 @@ function startZeichnen(s) {
   const unten = h("div", { klasse: "karte" }, h("div", { klasse: "zeile" },
     h("div", {}, h("div", { klasse: "etikett" }, "Leistung"),
       s.leistung ? h("div", { klasse: "modus" }, ["Eco", "Normal", "Power"].map((m) => h("span", { klasse: m === s.leistung ? "aktiv" : "" }, m))) : h("div", { klasse: "leise" }, "Kein Leistungsmodus vorhanden")),
-    h("div", {}, h("div", { klasse: "etikett" }, "Die App würde jetzt"), app ? h("div", {}, `${app.phase}, Klappe ${app.klappe} %`) : h("div", { klasse: "leise" }, "noch keine Berechnung")),
+    h("div", {}, h("div", { klasse: "etikett" }, s.modus === "betrieb" ? "Die App steuert" : "Die App würde jetzt"), app ? h("div", {}, `${app.phase}, Klappe ${app.klappe} %`) : h("div", { klasse: "leise" }, "noch keine Berechnung")),
     s.tuerkontakt_vorhanden && s.tuer_offen !== null && h("div", {}, h("div", { klasse: "etikett" }, "Tür"), h("div", {}, s.tuer_offen ? "offen" : "geschlossen"))));
 
+  const r = s.reinigung;
+  const reinigung = r && (r.faellig || r.bald) && h("div", { klasse: "karte", stil: `--farbe:var(${r.faellig ? "--fehler" : "--nachlegen"})` },
+    h("h2", {}, r.faellig ? "Wärmetauscher reinigen" : "Reinigung bald fällig"),
+    h("p", {}, r.faellig ? `Seit der letzten Reinigung ${zahl(r.gefahren_h, 0)} Brennstunden, eingestellt sind ${zahl(r.intervall_h, 0)}.`
+      : `Noch etwa ${zahl(r.rest_h, 0)} von ${zahl(r.intervall_h, 0)} Brennstunden.`),
+    h("p", { klasse: "leise" }, "Wenn du gereinigt hast, bestätige es. Dann beginnt die Zählung neu."),
+    h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: async () => { try { await api("api/reinigung/bestaetigen", {}); toast("Reinigung gespeichert."); aktualisieren(); } catch (f) { melden(f); } } }, "Gereinigt")));
+  const wa = s.wasser;
+  const WASSER_FARBE = { ok: "--ok", hinweis: "--nachlegen", warnung: "--warn", alarm: "--fehler" };
+  const WASSER_TITEL = { ok: "Wasserseite in Ordnung", hinweis: "Wasserseite: Hinweis", warnung: "Wasserseite: Warnung", alarm: "Wasserseite: Alarm" };
+  const wasser = wa && (wa.stufe !== "ok" || wa.leistung_kw !== null || wa.energie_heute_kwh !== null || wa.leistung_problem || wa.energie_problem) &&
+    h("div", { klasse: "karte", stil: `--farbe:var(${WASSER_FARBE[wa.stufe]})` },
+      h("h2", {}, WASSER_TITEL[wa.stufe]),
+      wa.befunde.map((b) => h("div", { klasse: "meldung" }, h("span", { klasse: "chip" }, b.stufe === "alarm" ? "Alarm" : b.stufe === "warnung" ? "Warnung" : "Hinweis"), " ", b.text,
+        b.wert !== null && h("span", { klasse: "leise" }, ` (jetzt ${zahl(b.wert, 1)} °C)`))),
+      (wa.leistung_kw !== null || wa.energie_heute_kwh !== null) && h("div", { klasse: "raster", stil: "margin-top:8px" },
+        wa.leistung_kw !== null && wertKarte("Wärmeleistung", zahl(wa.leistung_kw, 1), "kW"),
+        wa.energie_heute_kwh !== null && wertKarte("Wärme heute", zahl(wa.energie_heute_kwh, 1), "kWh")),
+      wa.leistung_problem && h("div", { klasse: "warnung" }, `Leistung: ${wa.leistung_problem}`),
+      wa.energie_problem && h("div", { klasse: "warnung" }, `Energie: ${wa.energie_problem}`),
+      h("p", { klasse: "leise", stil: "margin-top:8px" }, "Die App beobachtet nur und schaltet auf der Wasserseite nichts. Sie ersetzt keine Sicherheitseinrichtung."));
   const fehlt = s.fehlende_pflicht.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Noch einzurichten"),
     h("p", {}, `Bitte unter Ein-/Ausgänge zuweisen: ${s.fehlende_pflicht.join(", ")}.`),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: () => gehe("eingaenge") }, "Jetzt zuweisen")));
-  zeige(...[fehlt, karte, werte, band, unten].filter(Boolean));
+  zeige(...[fehlt, wasser, reinigung, betriebKarte(s), karte, werte, band, unten].filter(Boolean));
 }
 
 // ---- Verlauf -----------------------------------------------------------
@@ -131,6 +204,200 @@ async function verlaufZeichnen() {
   laden();
 }
 
+// ---- Kosten ------------------------------------------------------------
+let kostenMenge = 1000;
+const euro = (w, waehrung, stellen = 2) => w === null || w === undefined ? "–" : `${zahl(w, stellen)} ${waehrung}`;
+const ART_TEXT = { gemessen: "gemessen", schaetzung: "Schätzung", gemischt: "teils gemessen, teils geschätzt", modell: "Schätzung", keine: "noch keine Daten" };
+const artChip = (art) => art && h("span", { klasse: "chip" + (art === "gemessen" ? " eigen" : "") }, ART_TEXT[art] || art);
+async function kostenSenden(daten, text) {
+  try { await api("api/wirtschaft", daten); toast(text); kostenZeichnen(); } catch (f) { melden(f); }
+}
+function vergleichKarte(d) {
+  const v = d.vergleich, w = d.waehrung, holz = v.zeilen.find((z) => z.schluessel === "holz");
+  const menge = h("input", { type: "number", min: 1, step: "any", value: kostenMenge, inputmode: "decimal", "aria-label": "Nutzwärme in kWh",
+    onchange: (e) => { const x = Number(e.target.value); if (x > 0) { kostenMenge = x; kostenZeichnen(); } else { toast("Bitte eine Menge über 0 eingeben."); e.target.value = kostenMenge; } } });
+  const zeile = (z) => h("tr", {}, h("th", { scope: "row" }, z.titel, z.kostenlos && h("span", { klasse: "chip" }, "kostenlos")),
+    h("td", {}, zahl(z.je_kwh, 4)), h("td", {}, zahl(z.kosten, 2)),
+    h("td", {}, z.schluessel === "holz" || z.differenz === null ? "–" : `${z.differenz > 0 ? "+" : ""}${zahl(z.differenz, 2)}`));
+  return [h("div", { klasse: "karte" }, h("h2", {}, "Brennstoffvergleich"),
+      h("p", { klasse: "leise" }, "Was kostet dieselbe Nutzwärme mit Holz und mit deinen anderen Wärmeerzeugern? Der günstigste steht oben."),
+      h("div", { klasse: "angaben", stil: "margin:8px 0" }, angabe("Nutzwärme", menge, h("span", { klasse: "leise" }, "kWh"))),
+      v.zeilen.length > 0 ? h("div", { klasse: "matrix" }, h("table", { klasse: "kosten" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Wärmequelle"), h("th", {}, `${w}/kWh`), h("th", {}, `Summe ${w}`), h("th", {}, holz ? `Diff. ${w}` : ""))),
+        h("tbody", {}, v.zeilen.map(zeile)))) : h("p", {}, "Noch nichts zu vergleichen."),
+      holz && v.zeilen.length > 1 && h("p", { klasse: "leise", stil: "margin-top:8px" }, `Summe: Kosten für ${zahl(v.menge_kwh)} kWh Nutzwärme. Diff.: Unterschied zu Holz, plus heißt teurer, minus günstiger.`)),
+    v.fehlt.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Nicht im Vergleich"),
+      v.fehlt.map((f) => h("div", { klasse: "meldung" }, h("b", {}, `${f.titel}: `), f.grund))),
+    d.hinweise.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Das fehlt noch"), d.hinweise.map((x) => h("div", { klasse: "meldung" }, x.text)),
+      h("p", { stil: "margin-top:10px" }, h("button", { klasse: "neben", onclick: () => gehe("anlage") }, "Zur Anlage")))];
+}
+const AMORT_TITEL = { amortisiert: "Eingespielt", prognose: "Auf dem Weg", keine_amortisation: "Keine Amortisation", zu_wenig_daten: "Noch zu wenig Daten", unbekannt: "Noch nicht berechenbar" };
+function amortisationKarte(d) {
+  const a = d.amortisation, w = d.waehrung;
+  const wert = (t, x) => h("div", {}, h("div", { klasse: "etikett" }, t), h("b", {}, x));
+  const farbe_ = a.status === "keine_amortisation" ? "--fehler" : a.status === "amortisiert" ? "--ok" : "--abbrand";
+  const tage = a.tage_gemessen + a.tage_modell;
+  return h("div", { klasse: "karte", stil: `--farbe:var(${farbe_})` },
+    h("div", { klasse: "zeile" }, h("h2", {}, "Amortisation"), artChip(a.art)),
+    h("p", {}, h("b", {}, AMORT_TITEL[a.status] || a.status), a.hinweis && ` – ${a.hinweis}`),
+    a.prozent !== null && [h("div", { klasse: "fortschritt" }, h("i", { stil: `width:${a.prozent}%` })), h("div", { klasse: "leise" }, `${zahl(a.prozent, 1)} % der Investition eingespielt`)],
+    h("div", { klasse: "vorschlag", stil: "margin-top:10px" },
+      wert("Netto bisher", euro(a.netto_eur, w, 0)), a.rest_eur !== null && wert("Noch offen", euro(a.rest_eur, w, 0)),
+      a.prognose_jahre !== null && wert("Prognose", `${zahl(a.prognose_jahre, 1)} Jahre`), wert("Kaminwärme", `${zahl(a.kaminwaerme_kwh, 0)} kWh`)),
+    h("p", { klasse: "leise", stil: "margin-top:8px" }, `Netto = Einsparung ${euro(a.einsparung_eur, w, 0)} − Holz ${euro(a.holz_eur, w, 0)} − laufende Kosten ${euro(a.laufend_eur, w, 0)}. ` +
+      (tage ? `Kamintage: ${a.tage_gemessen} gemessen, ${a.tage_modell} geschätzt.` : "") +
+      (a.tage_unvollstaendig ? ` Bei ${a.tage_unvollstaendig} Tagen fehlt ein Preis, sie zählen ohne Einsparung.` : "")),
+    a.art === "schaetzung" && h("p", { klasse: "leise" }, "Geschätzt heißt: aus dem Holz und deinen Nutzungsgraden gerechnet. Mit Energiezähler, Außentemperatur und Referenz wird gemessen."),
+    d.amortisation_hinweise.map((x) => h("div", { klasse: "meldung" }, x.text)));
+}
+function heuteKarte(d) {
+  const n = d.heute_auflagen;
+  return h("div", { klasse: "karte" }, h("h2", {}, "Auflagen heute"),
+    h("div", { klasse: "zeile" },
+      h("div", {}, h("b", { stil: "font-size:1.6rem" }, String(n)), h("div", { klasse: "leise" }, d.kg_je_auflage ? `je ${zahl(d.kg_je_auflage, 1)} kg Holz` : "Holz je Auflage fehlt (unter Anlage), die Holzkosten bleiben leer")),
+      h("div", { klasse: "umschalter", role: "group", "aria-label": "Auflagen korrigieren" },
+        h("button", { type: "button", disabled: n === 0, "aria-label": "Eine Auflage weniger", onclick: () => kostenSenden({ aktion: "auflage", delta: -1 }, "Auflage abgezogen.") }, "−"),
+        h("button", { type: "button", "aria-label": "Eine Auflage mehr", onclick: () => kostenSenden({ aktion: "auflage", delta: 1 }, "Auflage nachgetragen.") }, "+"))),
+    h("p", { klasse: "leise", stil: "margin-top:8px" }, "Die App zählt, wenn das Feuer vom Anheizen in den Abbrand geht. Hat sie eine verpasst oder doppelt gezählt, korrigierst du hier."));
+}
+function tageKarte(d) {
+  if (d.tage.length === 0) return h("div", { klasse: "karte" }, h("h2", {}, "Tageswerte"), h("p", { klasse: "leise" }, "Noch keine Tage gebucht. Die Buchführung beginnt mit dem nächsten Takt der App."));
+  const w = d.waehrung;
+  const zeile = (t) => h("tr", {}, h("th", { scope: "row" }, new Date(t.tag).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }), t.vorlaeufig && h("span", { klasse: "chip" }, "heute")),
+    h("td", {}, zahl(t.auflagen)), h("td", {}, zahl(t.kaminwaerme_kwh, 0)), h("td", {}, zahl(t.holz_eur, 2)),
+    h("td", {}, t.einsparung_eur === null ? "–" : zahl(t.einsparung_eur, 2)), h("td", {}, t.art ? (t.art === "gemessen" ? "gemessen" : "geschätzt") : "–"));
+  return h("div", { klasse: "karte" }, h("h2", {}, "Tageswerte"),
+    h("div", { klasse: "matrix" }, h("table", { klasse: "kosten tage" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Tag"), h("th", {}, "Aufl."), h("th", {}, "kWh"), h("th", {}, `Holz ${w}`), h("th", {}, `Spart ${w}`), h("th", {}, "Art"))),
+      h("tbody", {}, d.tage.map(zeile)))),
+    h("p", { klasse: "leise", stil: "margin-top:8px" }, "kWh ist die Kaminwärme. Gemessen wird ein Tag erst nach Mitternacht, heute gilt die Schätzung. Das Geld wird zum Preis des Tages gebucht."));
+}
+function einstellungenKarte(d) {
+  const e = d.einstellungen, w = d.waehrung, werte = Object.fromEntries(Object.entries(e).map(([n, x]) => [n, x.wert]));
+  const feld = (name, einheit, hilfe) => zahlAngabe(werte, name, e[name].titel + (hilfe ? ` (${hilfe})` : ""), einheit, e[name].vorgabe ?? "leer");
+  const saldo = { ...d.saldo };
+  const r = d.referenz;
+  return [h("details", { klasse: "karte" }, h("summary", {}, "Amortisation einstellen"),
+      h("div", { klasse: "angaben", stil: "margin-top:10px" }, feld("investition", w), feld("laufende_kosten_jahr", `${w}/Jahr`, "z. B. Schornsteinfeger, Wartung"), feld("jahreswaerme_kwh", "kWh", "für die Prognose")),
+      h("h3", { stil: "margin-top:14px" }, "Referenz der bisherigen Heizung"),
+      h("p", { klasse: "leise" }, "Verbrauch an einem Tag ohne Feuer: größter Wert aus a − b × Außentemperatur und Sockel, in kWh Endenergie je Tag. Ohne Referenz wird die Einsparung geschätzt."),
+      h("div", { klasse: "angaben" }, feld("referenz_a", "kWh"), feld("referenz_b", "kWh/K"), feld("referenz_sockel", "kWh")),
+      h("div", { klasse: "vorschlagbox" },
+        h("b", {}, "Referenz lernen"), h("p", { klasse: "leise" }, r.ok ? `Vorschlag aus ${r.tage} Tagen ohne Feuer: a = ${zahl(r.a, 1)}, b = ${zahl(r.b, 2)}, Sockel = ${zahl(r.sockel, 1)}.` : r.grund),
+        r.ok && h("button", { klasse: "neben", onclick: () => kostenSenden({ aktion: "referenz_uebernehmen" }, "Referenz übernommen.") }, "Vorschlag übernehmen")),
+      h("h3", { stil: "margin-top:14px" }, "Aufteilung der Ofenwärme"),
+      h("p", { klasse: "leise" }, "Mit Wärmemengenzähler gilt: Wasserwärme + Wasserwärme × Verhältnis × Anteil. Ohne Zähler rechnet die App aus dem Holz."),
+      h("div", { klasse: "angaben" }, feld("raum_wasser_verhaeltnis", null), feld("aufstellraum_anteil", null)),
+      h("div", { klasse: "leiste" }, h("button", { klasse: "haupt", onclick: () => kostenSenden({ aktion: "einstellungen", werte }, "Gespeichert.") }, "Speichern"))),
+    h("details", { klasse: "karte" }, h("summary", {}, "Eröffnungssaldo"),
+      h("p", { klasse: "leise", stil: "margin-top:10px" }, "Summen aus der Zeit vor der App, zum Beispiel aus deinen bisherigen Zählern. Sie gehen in die Amortisation ein."),
+      h("div", { klasse: "angaben" }, Object.entries(d.saldo_felder).map(([n, t]) => zahlAngabe(saldo, n, t, n.endsWith("eur") ? w : n.endsWith("kwh") ? "kWh" : n === "holz_kg" ? "kg" : null, "0"))),
+      h("div", { klasse: "leiste" }, h("button", { klasse: "haupt", onclick: () => kostenSenden({ aktion: "eroeffnung", werte: saldo }, "Eröffnungssaldo gespeichert.") }, "Speichern")))];
+}
+async function kostenZeichnen() {
+  const d = await api(`api/wirtschaft?kwh=${encodeURIComponent(kostenMenge)}`);
+  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Kosten"), h("p", { klasse: "leise" }, d.rechenhilfe)),
+    d.amortisation && amortisationKarte(d), d.amortisation && heuteKarte(d), vergleichKarte(d), d.amortisation && tageKarte(d), d.amortisation && einstellungenKarte(d));
+}
+
+// ---- Anlage ------------------------------------------------------------
+const EINHEIT_TEXT = { rm: "Raummeter", srm: "Schüttraummeter" };
+const NUR_ENERGIE = ["kWh", "MWh"];
+function angabe(titel, ...kinder) { return h("label", { klasse: "angabe" }, h("span", { klasse: "leise" }, titel), h("div", { klasse: "eingabe" }, kinder)); }
+function klappliste(wert, einheiten, titel, beiWechsel) {
+  return h("select", { "aria-label": titel, onchange: (e) => beiWechsel(e.target.value) }, einheiten.map(([w, t]) => h("option", { value: w, selected: w === wert }, t)));
+}
+function zahlAngabe(objekt, name, titel, einheit, vorgabe) {
+  return angabe(titel, h("input", { type: "number", step: "any", value: objekt[name] ?? "", placeholder: vorgabe ?? "", "aria-label": titel, oninput: (e) => { objekt[name] = e.target.value === "" ? null : Number(e.target.value); } }), einheit && h("span", { klasse: "leise" }, einheit));
+}
+function jaNein(objekt, name, titel, hilfe, neu) {
+  return h("label", { klasse: "schalter" }, h("input", { type: "checkbox", checked: objekt[name], onchange: (e) => { objekt[name] = e.target.checked; neu(); } }), h("span", {}, h("b", {}, titel), h("div", { klasse: "leise" }, hilfe)));
+}
+function hinweisKarte(hinweise, titel) {
+  return hinweise.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, titel), hinweise.map((x) => h("div", { klasse: "meldung" }, h("b", {}, `${x.bereich}: `), x.text)));
+}
+function preisAngabe(b, art, waehrung, neu) {
+  const einheiten = art.preis_einheiten.map((e) => [e, `je ${EINHEIT_TEXT[e] || e}`]);
+  return [zahlAngabe(b, "preis", `Preis (${waehrung})`, null, "leer: kein Vergleich"),
+    angabe("Preis gilt", klappliste(b.preis_einheit, einheiten, `Einheit des Preises ${art.titel}`, (w) => { b.preis_einheit = w; neu(); }))];
+}
+function erzeugerZeile(e, p, d, staende, neu) {
+  const art = d.katalog.arten.find((a) => a.schluessel === e.art);
+  if (!art.kostenlos) e.preis_einheit ??= art.preis_einheiten[0];
+  e.zaehler_einheit ??= art.zaehler_einheiten[0];
+  const wechseln = (w) => {
+    const a = d.katalog.arten.find((x) => x.schluessel === w);
+    Object.assign(e, { art: w, preis: null, preis_einheit: a.preis_einheiten[0] ?? null, nutzungsgrad: null, heizwert: null, zustandszahl: null, kg_je_srm: null, zaehler_einheit: a.zaehler_einheiten[0] });
+    neu();
+  };
+  const menge = !art.kostenlos && [e.preis_einheit, e.zaehler_einheit].some((x) => !NUR_ENERGIE.includes(x));
+  const gas = art.zustandszahl !== null;
+  const stand = staende.get(e);
+  const aktuell = stand && stand.zaehler === e.zaehler ? stand : null;
+  return h("div", { klasse: "erzeuger" },
+    h("div", { klasse: "zeile" }, h("div", { stil: "flex:1;min-width:180px" }, klappliste(e.art, d.katalog.arten.map((a) => [a.schluessel, a.titel]), "Art des Wärmeerzeugers", wechseln)),
+      h("button", { klasse: "textknopf", onclick: () => { p.erzeuger.splice(p.erzeuger.indexOf(e), 1); neu(); } }, "Entfernen")),
+    h("div", { klasse: "angaben" },
+      zahlAngabe(e, "anteil", "Anteil an der ersetzten Wärme", "%", p.erzeuger.length === 1 ? "100" : null),
+      art.kostenlos ? h("p", { klasse: "leise" }, "Zählt als kostenlos.") : preisAngabe(e, art, p.waehrung, neu),
+      art.nutzungsgrad !== null && zahlAngabe(e, "nutzungsgrad", art.jaz ? "Jahresarbeitszahl" : "Nutzungsgrad (0,90 = 90 %)", null, art.nutzungsgrad),
+      menge && art.heizwert !== null && zahlAngabe(e, "heizwert", gas ? "Brennwert" : "Heizwert", `kWh/${art.heizwert_je}`, art.heizwert),
+      menge && gas && zahlAngabe(e, "zustandszahl", "Zustandszahl", null, art.zustandszahl),
+      e.preis_einheit === "srm" && zahlAngabe(e, "kg_je_srm", "Gewicht", "kg/srm", art.kg_je_srm)),
+    h("div", { klasse: "angaben" },
+      h("div", { klasse: "angabe" }, h("span", { klasse: "leise" }, "Zähler (optional)"), auswahlFeld({ schluessel: "zaehler", domains: d.katalog.zaehler_domains, titel: `Zähler ${art.titel}` }, e)),
+      angabe("Zähler misst in", klappliste(e.zaehler_einheit, art.zaehler_einheiten.map((x) => [x, x]), `Einheit des Zählers ${art.titel}`, (w) => { e.zaehler_einheit = w; neu(); }))),
+    aktuell && aktuell.wert !== null && h("div", { klasse: "aktuell" }, `Aktuell: ${aktuell.wert}${aktuell.einheit ? " " + aktuell.einheit : ""}${aktuell.kwh !== null ? ` = ${zahl(aktuell.kwh, 0)} kWh` : ""}`),
+    aktuell && aktuell.warnung && h("div", { klasse: "warnung" }, aktuell.warnung));
+}
+function holzKarte(p, d, neu) {
+  const art = d.katalog.holz;
+  p.holz.preis_einheit ??= art.preis_einheiten[0];
+  const einheit = p.holz.preis_einheit;
+  return h("div", { klasse: "karte" }, h("h2", {}, "Holz im Ofen"), h("p", { klasse: "leise" }, "Ohne Preis bleibt der Vergleich leer."),
+    h("div", { klasse: "angaben" }, preisAngabe(p.holz, art, p.waehrung, neu),
+      einheit !== "kWh" && zahlAngabe(p.holz, "heizwert", "Heizwert", "kWh/kg", art.heizwert),
+      einheit === "rm" && zahlAngabe(p.holz, "kg_je_rm", "Gewicht", "kg/rm", art.kg_je_rm),
+      einheit === "srm" && zahlAngabe(p.holz, "kg_je_srm", "Gewicht", "kg/srm", art.kg_je_srm),
+      zahlAngabe(p.holz, "nutzungsgrad_ofen", "Nutzungsgrad des Ofens (0,80 = 80 %)", null, art.nutzungsgrad),
+      zahlAngabe(p.holz, "kg_je_auflage", "Holz je Auflage", "kg", "leer: nicht bekannt")));
+}
+function ofenUmschalter(p, neu) {
+  const knopf = ([wert, text]) => h("button", { type: "button", "aria-pressed": String(p.ofen === wert), onclick: () => { if (p.ofen !== wert) { p.ofen = wert; neu(); } } }, text);
+  return h("div", { klasse: "umschalter", role: "group", "aria-label": "Betriebsart des Ofens" },
+    [["luftgefuehrt", "Normal (luftgeführt)"], ["wassergefuehrt", "Wassergeführt"]].map(knopf));
+}
+async function anlageZeichnen() {
+  const d = await api("api/profil"), p = d.profil;
+  const staende = new Map(p.erzeuger.map((e, i) => [e, { zaehler: e.zaehler, ...d.zaehler[i] }]));
+  const neu = () => {
+    const wasser = p.ofen === "wassergefuehrt";
+    zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Anlage"), h("p", { klasse: "leise" }, "Beschreibe deinen Ofen und deine übrige Heizung. Die App zeigt danach nur, was dazu passt.")),
+      h("div", { klasse: "karte" }, h("h2", {}, "Betriebsart"), ofenUmschalter(p, neu),
+        h("p", { klasse: "leise", stil: "margin-top:8px" }, wasser ? "Die App liest zusätzlich Wärmetauscher, Puffer und Pumpe." : "Wassergrenzen und Puffer entfallen. Bereits gespeicherte Werte bleiben erhalten.")),
+      !d.verbunden && h("div", { klasse: "karte" }, "Keine Verbindung zu Home Assistant, die aktuellen Werte fehlen."),
+      hinweisKarte(d.hinweise, "Das fehlt noch"),
+      h("div", { klasse: "karte" }, h("h2", {}, "Ofen"),
+        h("div", { klasse: "angaben", stil: "margin:0 0 12px" },
+          angabe("Währungszeichen", h("input", { type: "text", maxLength: 5, value: p.waehrung, "aria-label": "Währungszeichen", oninput: (e) => { p.waehrung = e.target.value; }, onchange: neu }))),
+        wasser && jaNein(p, "puffer", "Es gibt einen Pufferspeicher", "Dann lassen sich die Speicherfühler zuweisen.", neu),
+        wasser && jaNein(p, "pumpe_extern", "Eine eigene Regelung schaltet die Pumpe", "Die App liest nur mit, ob die Pumpe läuft.", neu),
+        jaNein(p, "klappe_motorisiert", "Die Luftklappe hat einen Motor", "Ohne Motor entfallen Klappenstellung, Wartung und Handbetrieb.", neu),
+        p.klappe_motorisiert && jaNein(p, "klappe_invertiert", "Klappe invertiert", "Der Antrieb schließt bei hohem Signal. Falsch eingestellt schließt die Klappe, wenn sie öffnen soll. Gibt es den Helfer der Automation, gilt dessen Wert.", neu),
+        p.klappe_motorisiert && h("div", { klasse: "angaben", stil: "margin:0 0 12px" }, zahlAngabe(p, "klappe_y0", "Startspannung bei einer Ausgabe als Licht (z. B. 2 bei 2-10-V-Antrieb)", "V", "0")),
+        jaNein(p, "tuerkontakt", "Es gibt einen Türkontakt", "Ohne Türkontakt erkennt die App das Nachlegen nur am Temperaturanstieg. Gilt nur für die App.", neu)),
+      h("div", { klasse: "karte" }, h("h2", {}, "Wärmeerzeuger"), h("p", { klasse: "leise" }, "Womit würdest du ohne den Ofen heizen? Beliebig viele, die Anteile müssen zusammen 100 % ergeben."),
+        p.erzeuger.map((e) => erzeugerZeile(e, p, d, staende, neu)),
+        h("p", { stil: "margin-top:12px" }, h("button", { klasse: "neben", onclick: () => { p.erzeuger.push({ art: "erdgas", anteil: null, preis: null }); neu(); } }, "Wärmeerzeuger hinzufügen"))),
+      holzKarte(p, d, neu),
+      imBetrieb() && h("p", { klasse: "warnung" }, "Im Betrieb nicht änderbar. Bitte erst auf Lauschen schalten."),
+      h("div", { klasse: "leiste" }, h("button", { klasse: "haupt", disabled: imBetrieb(), onclick: async () => {
+        try { await api("api/profil", p); toast("Gespeichert. Das Anlagenprofil gilt sofort."); anlageZeichnen(); } catch (f) { melden(f); }
+      } }, "Speichern")));
+  };
+  neu();
+}
+
 // ---- Ein-/Ausgänge -----------------------------------------------------
 function auswahlFeld(rolle, stand) {
   const feld = h("input", { type: "text", value: stand[rolle.schluessel] || "", placeholder: "Suchen oder leer lassen", autocomplete: "off", role: "combobox", "aria-label": rolle.titel, "aria-expanded": "false" });
@@ -164,16 +431,19 @@ function rolleZeile(r, stand) {
 async function eingaengeZeichnen() {
   const d = await api("api/rollen"), stand = {};
   d.rollen.forEach((r) => { if (r.entitaet) stand[r.schluessel] = r.entitaet; });
-  const tuer = h("input", { type: "checkbox", checked: d.tuerkontakt_vorhanden });
-  const nach = (f) => d.rollen.filter(f).map((r) => rolleZeile(r, stand));
-  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Ein-/Ausgänge"), h("p", { klasse: "leise" }, "Hier legst du fest, welche Sensoren und Schalter aus Home Assistant die App verwendet.")),
+  const nach = (f) => d.rollen.filter((r) => r.sichtbar && f(r)).map((r) => rolleZeile(r, stand));
+  const ueber = d.rollen.filter((r) => !r.sichtbar && r.entitaet);
+  const offen = d.hinweise.filter((x) => x.bereich !== "Kosten");
+  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Ein-/Ausgänge"), h("p", { klasse: "leise" }, "Hier legst du fest, welche Sensoren und Schalter aus Home Assistant die App verwendet. Welche das sind, richtet sich nach der ", h("button", { klasse: "textknopf", onclick: () => gehe("anlage") }, "Beschreibung deiner Anlage"), ".")),
     !d.verbunden && h("div", { klasse: "karte" }, "Keine Verbindung zu Home Assistant, die aktuellen Werte fehlen."),
-    h("div", { klasse: "karte" }, h("label", { klasse: "schalter" }, tuer, h("span", {}, h("b", {}, "Es gibt einen Türkontakt"), h("div", { klasse: "leise" }, "Ohne Türkontakt erkennt die App das Nachlegen nur am Temperaturanstieg. Gilt nur für die App."))) ),
+    hinweisKarte(offen, "Das fehlt noch"),
     h("div", { klasse: "karte" }, h("h2", {}, "Eingänge"), nach((r) => r.art === "eingang" && r.stufe !== "erweitert")),
-    h("div", { klasse: "karte" }, h("h2", {}, "Ausgänge"), h("p", { klasse: "leise" }, "Werden geprüft und angezeigt. Geschaltet werden sie erst nach der Umschaltung."), nach((r) => r.art === "ausgang")),
+    h("div", { klasse: "karte" }, h("h2", {}, "Ausgänge"), h("p", { klasse: "leise" }, imBetrieb() ? "Im Betrieb schaltet die App diese Ausgänge." : "Werden geprüft und angezeigt. Geschaltet werden sie erst im Betrieb."), nach((r) => r.art === "ausgang")),
     h("details", { klasse: "karte" }, h("summary", {}, "Erweitert"), nach((r) => r.stufe === "erweitert")),
-    h("div", { klasse: "leiste" }, h("button", { klasse: "haupt", onclick: async () => {
-      try { await api("api/rollen", { rollen: stand, tuerkontakt_vorhanden: tuer.checked }); toast("Gespeichert. Die Zuweisung gilt sofort."); eingaengeZeichnen(); } catch (f) { melden(f); }
+    ueber.length > 0 && h("details", { klasse: "karte" }, h("summary", {}, "Zugewiesen, passt aber nicht zur Anlage"), h("p", { klasse: "leise" }, "Diese Zuweisungen bleiben gespeichert. Zum Entfernen das Feld leeren und speichern."), ueber.map((r) => rolleZeile(r, stand))),
+    imBetrieb() && h("p", { klasse: "warnung" }, "Im Betrieb nicht änderbar. Bitte erst auf Lauschen schalten."),
+    h("div", { klasse: "leiste" }, h("button", { klasse: "haupt", disabled: imBetrieb(), onclick: async () => {
+      try { await api("api/rollen", { rollen: stand, tuerkontakt_vorhanden: d.tuerkontakt_vorhanden }); toast("Gespeichert. Die Zuweisung gilt sofort."); eingaengeZeichnen(); } catch (f) { melden(f); }
     } }, "Speichern")));
 }
 
@@ -185,12 +455,12 @@ function feldZeile(f, neu) {
     h("div", {}, h("b", {}, f.titel), h("div", { klasse: "leise" }, f.hilfe)),
     h("div", { klasse: "eingabe" }, eingabe, h("span", { klasse: "leise" }, f.einheit)),
     h("div", { klasse: "unten" }, h("span", { klasse: "chip" + (f.eigen ? " eigen" : "") }, f.quelle),
-      f.eigen && h("span", { klasse: "leise" }, `Automation: ${zahl(f.live, 2)} ${f.einheit}`),
+      f.eigen && f.live !== null && h("span", { klasse: "leise" }, `Automation: ${zahl(f.live, 2)} ${f.einheit}`),
       f.eigen && h("button", { klasse: "textknopf", onclick: async () => { await setzen(f.name, null); toast("Zurückgesetzt"); neu(); } }, "Zurücksetzen")));
 }
 async function einstellungenZeichnen() {
   const d = await api("api/parameter");
-  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Einstellungen"), h("p", { klasse: "leise" }, "Änderungen wirken bis zur Umschaltung nur auf die Berechnung der App, nicht auf den Ofen.")),
+  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Einstellungen"), h("p", { klasse: "leise" }, imBetrieb() ? "Änderungen wirken sofort auf die Klappe." : "Änderungen wirken im Lauschen nur auf die Berechnung der App, nicht auf den Ofen.")),
     d.themen.map((t, i) => h("details", { klasse: "karte", open: i === 0 }, h("summary", {}, t.titel), t.felder.map((f) => feldZeile(f, einstellungenZeichnen)))));
 }
 
@@ -202,7 +472,7 @@ function schieber(f) {
     h("input", { type: "range", min: f.minimum, max: f.maximum, step: f.schritt, value: f.wert, "aria-label": f.titel,
       oninput: (e) => { anzeige.textContent = `${zahl(e.target.value, 2)} ${f.einheit}`; },
       onchange: async (e) => { try { await setzen(f.name, Number(e.target.value)); toast(`${f.titel} gilt ab sofort für die App`); } catch (x) { melden(x); reglerZeichnen(); } } }),
-    f.eigen && h("button", { klasse: "textknopf", onclick: async () => { await setzen(f.name, null); reglerZeichnen(); } }, `Zurück auf Automation (${zahl(f.live, 2)})`));
+    f.eigen && h("button", { klasse: "textknopf", onclick: async () => { await setzen(f.name, null); reglerZeichnen(); } }, `${imBetrieb() ? "Zurück auf Vorgabe" : "Zurück auf Automation"} (${zahl(f.live, 2)})`));
 }
 function vorschlagZeigen(v) {
   if (!v) return null;
@@ -216,10 +486,33 @@ async function reglerZeichnen() {
   const d = await api("api/parameter");
   const ergebnis = h("div", { stil: "margin-top:12px" }, vorschlagZeigen(d.vorschlag));
   const knopf = h("button", { klasse: "neben", onclick: async () => { knopf.disabled = true; knopf.textContent = "Wird berechnet …"; try { ergebnis.replaceChildren(vorschlagZeigen(await api("api/autotune/verlauf", {}))); } catch (f) { melden(f); } knopf.disabled = false; knopf.textContent = "Aus dem Verlauf berechnen"; } }, "Aus dem Verlauf berechnen");
-  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Regler"), h("p", { klasse: "leise" }, "Bis zur Umschaltung wirken diese Werte nur auf die gerechnete Klappe. Wie der Ofen wirklich reagiert, zeigt sich erst danach.")),
+  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Regler"), h("p", { klasse: "leise" }, imBetrieb() ? "Diese Werte wirken im Betrieb direkt auf die Klappe." : "Im Lauschen wirken diese Werte nur auf die gerechnete Klappe. Wie der Ofen wirklich reagiert, zeigt sich erst im Betrieb.")),
     h("div", { klasse: "karte" }, d.regler.map(schieber)),
     h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune aus dem Verlauf"), h("p", { klasse: "leise" }, "Wertet aus, wie die Temperatur in den letzten sieben Tagen auf Klappenbewegungen reagiert hat. Das Ergebnis ist ein Startwert, den du bestätigst."), h("p", { stil: "margin-top:10px" }, knopf), ergebnis),
-    h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune mit Testlauf"), h("p", { klasse: "leise" }, "Wie beim 3D-Drucker: Die Klappe pendelt im Abbrand um ihre Arbeitsstellung und die App misst die Antwort."), h("p", { stil: "margin-top:10px" }, h("button", { klasse: "neben", disabled: true }, "Testlauf starten")), h("p", { klasse: "warnung" }, d.autotune_aktiv_gesperrt)));
+    h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune mit Testlauf"), h("p", { klasse: "leise" }, "Aktive Streckenidentifikation nach dem Relaisverfahren: Die Zuluftklappe wird im Abbrand gezielt um ihre Arbeitsstellung verstellt. Aus der Reaktion der Abgastemperatur ermittelt die App Verstärkung und Totzeit der Regelstrecke und leitet daraus Reglerparameter ab."), h("p", { stil: "margin-top:10px" }, h("button", { klasse: "neben", disabled: true }, "Testlauf starten")), h("p", { klasse: "warnung" }, d.autotune_aktiv_gesperrt)));
+}
+
+// ---- Benachrichtigungen ------------------------------------------------
+async function benachrichtigungenZeichnen() {
+  const d = await api("api/benachrichtigungen");
+  const wahl = new Map(d.arten.map((a) => [a.schluessel, new Set(d.zuordnung[a.schluessel] || [])]));
+  const test = async (g, knopf) => {
+    knopf.disabled = true;
+    try { await api("api/benachrichtigungen/test", { dienst: g.dienst }); toast(`Testnachricht an ${g.name} gesendet`); } catch (f) { melden(f); }
+    knopf.disabled = false;
+  };
+  const kopf = (g) => { const knopf = h("button", { klasse: "neben klein", type: "button", onclick: () => test(g, knopf) }, "Testnachricht");
+    return h("th", { scope: "col" }, h("div", { klasse: "geraet" }, g.name), h("div", { klasse: "leise" }, g.fehlt ? "nicht gefunden" : g.dienst.replace("notify.", "")), knopf); };
+  const zeile = (a) => h("tr", {}, h("th", { scope: "row" }, a.titel, a.dringend && h("span", { klasse: "chip", title: "Wird auch im Fokus-Modus zugestellt" }, "dringend"), h("div", { klasse: "leise" }, a.hilfe)),
+    d.geraete.map((g) => h("td", {}, h("input", { type: "checkbox", checked: wahl.get(a.schluessel).has(g.dienst), "aria-label": `${a.titel} an ${g.name}`,
+      onchange: (e) => { const m = wahl.get(a.schluessel); if (e.target.checked) m.add(g.dienst); else m.delete(g.dienst); } }))));
+  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Benachrichtigungen"), h("p", { klasse: "leise" }, "Lege fest, welche Nachricht auf welches Gerät geht. Ohne Haken sendet die App nichts, so gibt es keine doppelten Meldungen neben deinen eigenen Automationen.")),
+    !d.verbunden && h("div", { klasse: "karte" }, h("b", {}, "Keine Verbindung zu Home Assistant."), h("p", { klasse: "leise" }, "Die Geräteliste fehlt gerade. Deine gespeicherte Auswahl bleibt erhalten und gilt weiter.")),
+    d.verbunden && d.geraete.length === 0 && h("div", { klasse: "karte" }, "Home Assistant bietet keine Geräte für Nachrichten an. Ist die Companion-App auf dem Handy eingerichtet?"),
+    d.geraete.length > 0 && h("div", { klasse: "karte" }, h("div", { klasse: "matrix" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Nachricht"), d.geraete.map(kopf))), h("tbody", {}, d.arten.map(zeile))))),
+    h("div", { klasse: "leiste" }, h("button", { klasse: "haupt", onclick: async () => {
+      try { await api("api/benachrichtigungen", { zuordnung: Object.fromEntries([...wahl].map(([k, m]) => [k, [...m]])) }); toast("Gespeichert."); benachrichtigungenZeichnen(); } catch (f) { melden(f); }
+    } }, "Speichern")));
 }
 
 // ---- Service -----------------------------------------------------------
@@ -243,19 +536,27 @@ async function serviceZeichnen() {
 }
 
 // ---- Rahmen ------------------------------------------------------------
-const SEITEN = { start: null, verlauf: verlaufZeichnen, eingaenge: eingaengeZeichnen, einstellungen: einstellungenZeichnen, regler: reglerZeichnen, service: serviceZeichnen };
+const SEITEN = { start: null, verlauf: verlaufZeichnen, kosten: kostenZeichnen, anlage: anlageZeichnen, eingaenge: eingaengeZeichnen, einstellungen: einstellungenZeichnen, regler: reglerZeichnen, benachrichtigungen: benachrichtigungenZeichnen, service: serviceZeichnen };
+// Unterreiter von „Einstellungen“ in Anzeigereihenfolge; „einstellungen“ selbst ist der Reiter Parameter.
+const UNTERREITER = [["einstellungen", "Parameter"], ["anlage", "Anlage"], ["eingaenge", "Ein-/Ausgänge"], ["regler", "Regler"], ["benachrichtigungen", "Benachrichtigungen"]];
+const imUnterreiter = (name) => UNTERREITER.some(([k]) => k === name);
 let seite = "start";
 async function aktualisieren() {
-  if (seite !== "start") return;
-  try { startZeichnen(await api("api/status")); } catch (f) { zeige(h("div", { klasse: "karte" }, `Keine Daten: ${f.message}`)); }
+  try { const s = await api("api/status"); modusAnzeigen(s.modus); if (seite === "start") startZeichnen(s); }
+  catch (f) { if (seite === "start") zeige(h("div", { klasse: "karte" }, `Keine Daten: ${f.message}`)); }
 }
 async function gehe(name) {
   seite = SEITEN.hasOwnProperty(name) ? name : "start";
   location.hash = seite;
-  document.querySelectorAll(".navi button").forEach((b) => { if (b.dataset.seite === seite) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  const haupt = imUnterreiter(seite) ? "einstellungen" : seite;
+  document.querySelectorAll(".navi button").forEach((b) => { if (b.dataset.seite === haupt) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  const unter = document.getElementById("unter");
+  unter.hidden = !imUnterreiter(seite);
+  unter.replaceChildren(...UNTERREITER.map(([k, t]) => h("button", { type: "button", "aria-current": k === seite ? "page" : false, onclick: () => gehe(k) }, t)));
+  const aktiv = unter.querySelector('[aria-current]'); if (aktiv && aktiv.scrollIntoView) aktiv.scrollIntoView({ block: "nearest", inline: "center" });
   if (seite === "start") return aktualisieren();
   try { await SEITEN[seite](); } catch (f) { zeige(h("div", { klasse: "karte" }, f.message)); }
 }
 document.querySelectorAll(".navi button").forEach((b) => b.addEventListener("click", () => gehe(b.dataset.seite)));
-gehe(location.hash.slice(1) || "start");
+aktualisieren().finally(() => gehe(location.hash.slice(1) || "start"));
 setInterval(aktualisieren, 5000);
