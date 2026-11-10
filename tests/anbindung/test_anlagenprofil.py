@@ -217,6 +217,12 @@ def test_fehlendes_wird_benannt():
     assert "ergeben 80 %" in t and "Brennholz" in t and "Energiezähler" in t and "Rücklauf" in t
 
 
+def test_zaehler_am_erzeuger_ersetzt_die_rolle_energiezaehler():
+    p = profil(erzeuger=[{"art": "erdgas", "preis": 0.1, "zaehler": "sensor.gas", "zaehler_einheit": "kWh"}])
+    assert "Energiezähler" not in texte(p)
+    assert "Energiezähler" in texte(profil(erzeuger=[{"art": "erdgas", "preis": 0.1}]))
+
+
 def test_luftgefuehrt_fragt_nicht_nach_wasser():
     assert not [h for h in fehlende_angaben(profil_pruefen({"ofen": LUFT}), {}) if h["bereich"] == "Wasser"]
 

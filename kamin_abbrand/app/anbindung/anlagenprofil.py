@@ -415,7 +415,8 @@ def fehlende_angaben(profil: Anlagenprofil, rollen: Mapping[str, str]) -> list[d
             melden(KOSTEN, f"Die Anteile ergeben {summe:g} %, es müssen 100 % sein.")
     if preis_je_kwh(profil.holz) is None:
         melden(KOSTEN, "Brennholz: Preis fehlt. Ohne ihn lassen sich die Kosten nicht vergleichen.")
-    if not rollen.get("energiezaehler"):
+    if not rollen.get("energiezaehler") and not zaehler_entitaeten(profil):
+        # Ein Zähler am Erzeuger misst die bisherige Heizung genauso, die Rolle ist dann entbehrlich.
         melden(AMORTISATION, "Energiezähler ist nicht zugewiesen. Die Einsparung kann nur geschätzt werden.")
     if not rollen.get("t_aussen"):
         melden(AMORTISATION, "Außentemperatur ist nicht zugewiesen. Ohne sie gibt es keine gemessene Referenz.")

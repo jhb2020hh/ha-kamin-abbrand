@@ -25,8 +25,25 @@ const zahl = (w, stellen = 0) => (w === null || w === undefined) ? "–" : Numbe
 function dauer(s) { if (s === null || s === undefined) return "–"; s = Math.round(s); if (s < 90) return `${s} s`; const m = Math.round(s / 60); return m < 90 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; }
 const uhr = (z) => new Date(z * 1000).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
+// 401 kommt nie von der App, sondern von Home Assistant: Die Ingress-Sitzung ist abgelaufen, meist weil die Seite
+// lange im Hintergrund lag. Eine neue Sitzung legt nur die HA-Oberfläche an, deshalb wird sie neu geladen.
+// Höchstens einmal je Minute, damit eine dauerhaft verweigerte Anmeldung keine Schleife auslöst.
+const NEU_GELADEN_KEY = "kamin_abbrand_neu_geladen";
+function sitzungErneuern() {
+  if (document.hidden) return false;    // Beim Zurückkehren wird sofort neu abgefragt, dann greift es.
+  let zuletzt = 0;
+  try { zuletzt = Number(sessionStorage.getItem(NEU_GELADEN_KEY)) || 0; } catch (_) { /* Speicher gesperrt */ }
+  if (Date.now() - zuletzt < 60000) return false;
+  try { sessionStorage.setItem(NEU_GELADEN_KEY, String(Date.now())); } catch (_) { return false; }
+  try { window.top.location.reload(); } catch (_) { location.reload(); }
+  return true;
+}
 async function api(pfad, inhaltDaten) {
   const antwort = await fetch(pfad, inhaltDaten === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(inhaltDaten) });
+  if (antwort.status === 401) {
+    throw new Error(sitzungErneuern() ? "Die Anmeldung bei Home Assistant ist abgelaufen, die Seite wird neu geladen …"
+      : "Die Anmeldung bei Home Assistant ist abgelaufen. Bitte die Seite neu laden.");
+  }
   const daten = await antwort.json().catch(() => ({}));
   if (!antwort.ok) throw new Error(daten.fehler || `Fehler ${antwort.status}`);
   return daten;
@@ -625,4 +642,6 @@ async function gehe(name) {
 }
 document.querySelectorAll(".navi button").forEach((b) => b.addEventListener("click", () => gehe(b.dataset.seite)));
 aktualisieren().finally(() => gehe(location.hash.slice(1) || "start"));
-setInterval(aktualisieren, 5000);
+// Im Hintergrund nicht abfragen; beim Zurückkehren sofort, damit eine abgelaufene Sitzung gleich erneuert wird.
+setInterval(() => { if (!document.hidden) aktualisieren(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) aktualisieren(); });

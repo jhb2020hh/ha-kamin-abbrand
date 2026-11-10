@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- Behoben: Lag die Seite länger im Hintergrund, zeigte sie „Fehler 401“, bis man von Hand neu lud. Die abgelaufene Anmeldung bei Home Assistant wird jetzt erkannt und die Seite einmal neu geladen. Im Hintergrund fragt die Seite nicht mehr ab.
+- Behoben: Der Hinweis „Energiezähler ist nicht zugewiesen“ erschien auch, wenn beim Wärmeerzeuger ein Zähler eingetragen ist.
+
 ## 0.3.3
 
 - Neu: Karte Abbrand-Dauer auf der Startseite mit aktuellem und letztem Abbrand, Durchschnitt und Anzahl für heute und gesamt. Vorhandene Summen der Live-Automation werden einmalig übernommen.
