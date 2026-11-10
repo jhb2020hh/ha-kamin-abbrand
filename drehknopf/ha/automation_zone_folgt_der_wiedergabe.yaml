@@ -1,0 +1,33 @@
+# automation.drehknopf_zone_folgt_der_wiedergabe – Export aus HA (2026-11-10)
+id: '1794344486204'
+alias: Drehknopf – Zone folgt der Wiedergabe
+description: 'Stellt input_select.drehknopf_zone auf die Zone, in der zuletzt eine Wiedergabe gestartet wurde (Music Assistant oder direkt vom Gerät/iPhone). Läuft nichts, bleibt die letzte Zone stehen,
+  damit Play dort weitermacht. Manuell umschalten: langer Druck am Kamin-Drehknopf.'
+triggers:
+- trigger: media_player.started_playing
+  target:
+    entity_id:
+    - media_player.kuche
+    - media_player.kuche_2
+  id: Küche
+- trigger: media_player.started_playing
+  target:
+    entity_id:
+    - media_player.denon_2
+    - media_player.living_room
+  id: Wohnzimmer Denon
+- trigger: media_player.started_playing
+  target:
+    entity_id:
+    - media_player.wohnzimmer
+    - media_player.wohnzimmer_2
+  id: Wohnzimmer Apple TV
+actions:
+- action: input_select.select_option
+  target:
+    entity_id: input_select.drehknopf_zone
+  data:
+    option: '{{ trigger.id }}'
+  note: Trigger-ID = Optionsname der Zone
+mode: queued
+max_exceeded: silent

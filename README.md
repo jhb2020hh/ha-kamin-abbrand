@@ -2,6 +2,8 @@
 
 Home-Assistant-App für Kaminöfen. Sie erkennt die Phasen (Anheizen, Abbrand, Glut, Abkühlen), rechnet aus, wie weit die Zuluftklappe offen sein sollte, und kann sie auf Wunsch steuern. Dazu kommen ein Kostenvergleich mit Amortisation, die Überwachung der Wasserseite und Push-Nachrichten je Gerät.
 
+Die Abbrandsteuerung ist die Grundidee des Projekts. Dazu gehört ein [Wanddisplay mit Drehknopf](drehknopf/), das die Werte des Kamins direkt neben dem Ofen zeigt. Die Anzeige ist nicht auf den Kamin festgelegt: Sie besteht aus Seiten und lässt sich um beliebige Themen erweitern, zum Beispiel Musik.
+
 [![Repository zu Home Assistant hinzufügen](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjhb2020hh%2Fha-kamin-abbrand)
 
 ![Startseite: Phase Abbrand mit Abgastemperatur, Klappenstellung, Kaminzug und Wasserseite](docs/screenshots/start.png)
@@ -19,6 +21,15 @@ Home-Assistant-App für Kaminöfen. Sie erkennt die Phasen (Anheizen, Abbrand, G
 | Jeder Ein- und Ausgang lässt sich einem Sensor aus Home Assistant zuweisen, ohne Neustart und ohne YAML. |
 
 Die Bilder zeigen eine Beispielanlage mit erfundenen Messwerten.
+
+## Wanddisplay mit Drehknopf
+
+| Kamin | Musik |
+| --- | --- |
+| [![Kamin-Seite mit Phase, Abgastemperatur, Ziel, Klappe und Leistungsknöpfen](docs/screenshots/drehknopf-kamin.png)](drehknopf/) | [![Musik-Seite mit Titel, Lautstärke und Wiedergabeknöpfen](docs/screenshots/drehknopf-musik.png)](drehknopf/) |
+| Phase, Abgastemperatur und Klappe; Leistungsmodus per Touch. | Steuert Lautstärke und Wiedergabe des gerade laufenden Players. |
+
+Ein rundes 1,5"-AMOLED mit Drehring ([VIEWE UEDX46460015-MD50E](https://www.aliexpress.com/item/1005008363683358.html), ESP32-S3) ersetzt das Bedienteil an der Wand. Die Firmware ist eine ESPHome-Konfiguration mit LVGL, die ihre Werte aus Home Assistant liest. Weitere Seiten für Heizung, Licht oder andere Themen lassen sich nach demselben Muster ergänzen. Ein Einbrennschutz schaltet das Display ab, wenn niemand es braucht. Die Bilder sind Wireframes; auf der Hardware ist die Konfiguration noch nicht getestet. Mehr dazu unter [drehknopf/](drehknopf/).
 
 ## Lauschen und Betrieb
 

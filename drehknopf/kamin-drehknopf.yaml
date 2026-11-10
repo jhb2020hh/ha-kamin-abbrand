@@ -1,0 +1,873 @@
+# ============================================================================
+# KAMIN-DREHKNOPF – VIEWE UEDX46460015-MD50E an der Kaminwand (Wohnzimmer)
+# ----------------------------------------------------------------------------
+# 1,5" rundes AMOLED 466x466 (CO5300, QSPI), Touch CST816, Drehring + Taster,
+# ESP32-S3 (16 MB Flash, 8 MB PSRAM), nur WLAN.
+# Pinbelegung nach github.com/STB3/esphome-Viewe_UEDX4646.
+#
+# Bedienung
+#   Taster kurz (Druck auf Knopf) : Seite wechseln Kamin <-> Musik
+#   Taster lang (> 0,8 s, Musik)  : nächste Zone (Küche / Wohnzimmer Denon / Apple TV)
+#   Drehen auf "Kamin"            : (reserviert für weitere Kamin-Ansichten)
+#   Drehen auf "Musik"            : Lautstärke
+#   Touch                         : Leistungsmodus bzw. Zurück/Play/Weiter
+#   Erster Kontakt (Touch, Drehen, Taster) weckt nur, löst nichts aus.
+#
+# Anzeige / Einbrennschutz (AMOLED)
+#   - Nach "Anzeige Timeout" ohne Bedienung:
+#       Feuer aktiv + "Anzeige bei Feuer" an -> Kamin-Seite gedimmt,
+#                                              Inhalt wandert alle 2 min um 3 px
+#       sonst                                -> schwarz, Helligkeit 0, LVGL pausiert
+#   - Feuer geht an  -> gedimmte Kamin-Seite; Feuer aus -> Anzeige aus.
+#
+# Voraussetzung in HA: In der ESPHome-Integration bei diesem Gerät
+#   "Erlaube dem Gerät, Home-Assistant-Aktionen auszuführen" aktivieren,
+#   sonst funktionieren Leistungsmodus und Musiksteuerung nicht.
+#
+# secrets.yaml: wifi_ssid, wifi_password, wifi_ap_password (Fallback-Hotspot), api_password (32-Byte base64 Key)
+# ============================================================================
+
+substitutions:
+  devicename: kamin-drehknopf
+  friendly_name: Kamin Drehknopf
+  device_description: "Rundes Drehknopf-Display an der Kaminwand (Wohnzimmer)"
+
+  # --- Kamin (HA-Entitäten) ---
+  e_t_abgas: sensor.kamin_abgastemperatur   # eigenen Abgastemperatur-Sensor eintragen
+  e_t_ziel: input_number.kamin_abbrand_t_ziel
+  e_klappe_ist: sensor.kamin_abbrand_klappe_ist
+  e_phase: input_select.kamin_abbrand_phase
+  e_modus: input_select.kamin_abbrand_leistungsmodus
+  e_feuer: binary_sensor.kamin_feuer_aktiv
+  t_skala_max: "350"          # Vollausschlag des Temperaturbogens in °C
+
+  # --- Musik: aktive Zone wird in HA bestimmt ---
+  # input_select.drehknopf_zone folgt der Wiedergabe (automation.drehknopf_zone_folgt_der_wiedergabe),
+  # Befehle gehen an script.drehknopf_medien, das den passenden Player wählt.
+  e_zone: input_select.drehknopf_zone
+  e_titel: sensor.drehknopf_titel
+  e_kuenstler: sensor.drehknopf_kunstler
+  e_zustand: sensor.drehknopf_zustand
+  e_lautstaerke: sensor.drehknopf_lautstarke     # 0..100 %
+  s_medien: script.drehknopf_medien
+  vol_schritt: "0.02"         # Lautstärke je Rastung (0..1)
+
+esphome:
+  name: ${devicename}
+  friendly_name: ${friendly_name}
+  comment: ${device_description}
+  name_add_mac_suffix: false
+  on_boot:
+    - priority: 800
+      then:
+        # GPIO17 versorgt das komplette LCD-Modul – muss vor der Display-Init HIGH sein
+        - lambda: |-
+            gpio_set_direction(GPIO_NUM_17, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_17, 1);
+        - delay: 100ms
+    - priority: -100
+      then:
+        - script.execute: anzeige_wecken
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Kamin Drehknopf Fallback"
+    password: !secret wifi_ap_password
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_password
+
+ota:
+  - platform: esphome
+
+safe_mode:
+  num_attempts: 3
+
+# ===========================================================================
+#  HARDWARE
+# ===========================================================================
+spi:
+  id: display_qspi
+  type: quad
+  clk_pin: GPIO10
+  data_pins: [GPIO13, GPIO11, GPIO14, GPIO9]
+
+i2c:
+  id: touch_i2c
+  sda: GPIO1
+  scl: GPIO3
+
+display:
+  - platform: mipi_spi
+    id: main_display
+    model: CO5300
+    reset_pin: GPIO8
+    cs_pin: GPIO12
+    bus_mode: quad
+    brightness: 200
+    dimensions:
+      height: 466
+      width: 466
+      offset_height: 0
+      offset_width: 6        # sonst 6 grüne Linien am rechten Rand
+    color_depth: 16
+    buffer_size: 100%        # sonst Zeilenartefakte
+    update_interval: never
+    auto_clear_enabled: false
+    init_sequence:
+      - [0xD0, 0x07, 0x42, 0x18]
+      - delay 10ms
+      - [0xD1, 0x00, 0x07, 0x10]
+      - delay 10ms
+
+touchscreen:
+  - platform: cst816
+    id: main_touchscreen
+    display: main_display
+    on_release:
+      # Aus dem Aus-Zustand erst beim Loslassen wecken, damit die Berührung
+      # keinen Knopf auf der Seite auslöst.
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 0;
+          then:
+            - script.execute: anzeige_wecken
+
+# ===========================================================================
+#  ZUSTAND
+# ===========================================================================
+globals:
+  - id: anzeige_modus      # 0 = aus, 1 = aktiv, 2 = gedimmt (Feuer)
+    type: int
+    initial_value: "0"
+  - id: seite              # 0 = Kamin, 1 = Musik
+    type: int
+    initial_value: "0"
+  - id: vol_soll           # zuletzt gestellte/gemeldete Lautstärke 0..1, <0 = unbekannt
+    type: float
+    initial_value: "-1"
+  - id: vol_dreh_ms        # Zeitpunkt der letzten Drehung (HA-Werte kurz ignorieren)
+    type: uint32_t
+    initial_value: "0"
+  - id: shift_idx
+    type: int
+    initial_value: "0"
+
+# ===========================================================================
+#  EINSTELLUNGEN (in HA sichtbar)
+# ===========================================================================
+number:
+  - platform: template
+    name: "Anzeige Timeout"
+    id: anzeige_timeout
+    icon: mdi:timer-outline
+    entity_category: config
+    unit_of_measurement: s
+    min_value: 10
+    max_value: 600
+    step: 5
+    initial_value: 60
+    restore_value: true
+    optimistic: true
+  - platform: template
+    name: "Helligkeit aktiv"
+    id: hell_aktiv
+    icon: mdi:brightness-7
+    entity_category: config
+    unit_of_measurement: "%"
+    min_value: 5
+    max_value: 100
+    step: 5
+    initial_value: 80
+    restore_value: true
+    optimistic: true
+    on_value:
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 1;
+          then:
+            - lambda: id(main_display).set_brightness((uint8_t) (x * 2.55f));
+  - platform: template
+    name: "Helligkeit gedimmt"
+    id: hell_gedimmt
+    icon: mdi:brightness-4
+    entity_category: config
+    unit_of_measurement: "%"
+    min_value: 5
+    max_value: 100
+    step: 5
+    initial_value: 25
+    restore_value: true
+    optimistic: true
+    on_value:
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 2;
+          then:
+            - lambda: id(main_display).set_brightness((uint8_t) (x * 2.55f));
+
+switch:
+  - platform: template
+    name: "Anzeige bei Feuer"
+    id: anzeige_bei_feuer
+    icon: mdi:fireplace
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_off:
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 2;
+          then:
+            - script.execute: anzeige_aus
+
+# ===========================================================================
+#  DATEN AUS HOME ASSISTANT
+# ===========================================================================
+sensor:
+  - platform: homeassistant
+    id: ha_t_abgas
+    entity_id: ${e_t_abgas}
+    on_value:
+      - lambda: |-
+          if (std::isnan(x)) {
+            lv_label_set_text(id(lbl_t), "--");
+            lv_arc_set_value(id(arc_t), 0);
+            return;
+          }
+          lv_label_set_text_fmt(id(lbl_t), "%d°", (int) roundf(x));
+          lv_arc_set_value(id(arc_t), (int16_t) std::max(0.0f, std::min(x, (float) ${t_skala_max})));
+  - platform: homeassistant
+    id: ha_t_ziel
+    entity_id: ${e_t_ziel}
+    on_value:
+      - script.execute: info_zeile
+  - platform: homeassistant
+    id: ha_klappe
+    entity_id: ${e_klappe_ist}
+    on_value:
+      - script.execute: info_zeile
+  - platform: homeassistant
+    id: ha_volume
+    entity_id: ${e_lautstaerke}
+    on_value:
+      - lambda: |-
+          // Während gedreht wird, nicht vom (verzögerten) HA-Wert zurückspringen
+          if (millis() - id(vol_dreh_ms) < 2500) return;
+          id(vol_soll) = std::isnan(x) ? -1.0f : x / 100.0f;
+          id(vol_anzeigen).execute();
+
+  # Drehring
+  - platform: rotary_encoder
+    id: drehring
+    pin_a: GPIO5
+    pin_b: GPIO6
+    internal: true
+    on_clockwise:
+      - lambda: id(drehen).execute(1);
+    on_anticlockwise:
+      - lambda: id(drehen).execute(-1);
+
+text_sensor:
+  - platform: homeassistant
+    id: ha_phase
+    entity_id: ${e_phase}
+    on_value:
+      - lambda: |-
+          uint32_t c = 0x9E9E9E;                                   // Standby
+          if (x == "Tür offen" || x == "Anheizen") c = 0xFFB300;
+          else if (x == "Abbrand")                 c = 0xFF6D00;
+          else if (x == "Ausbrand")                c = 0xFF9100;
+          else if (x == "Glut")                    c = 0xD84315;
+          else if (x == "Abkühlen")                c = 0x42A5F5;
+          else if (x == "Anheizfehler" || x == "Störung") c = 0xFF1744;
+          else if (x == "Wartung")                 c = 0xB388FF;
+          lv_label_set_text(id(lbl_phase), x.c_str());
+          lv_obj_set_style_text_color(id(lbl_phase), lv_color_hex(c), 0);
+          lv_obj_set_style_arc_color(id(arc_t), lv_color_hex(c), LV_PART_INDICATOR);
+  - platform: homeassistant
+    id: ha_modus
+    entity_id: ${e_modus}
+    on_value:
+      - lambda: |-
+          auto setze = [](lv_obj_t *b, bool an) {
+            if (an) lv_obj_add_state(b, LV_STATE_CHECKED);
+            else    lv_obj_clear_state(b, LV_STATE_CHECKED);
+          };
+          setze(id(btn_eco),    x == "Eco");
+          setze(id(btn_normal), x == "Normal");
+          setze(id(btn_power),  x == "Power");
+  - platform: homeassistant
+    id: ha_zone
+    entity_id: ${e_zone}
+    on_value:
+      - lambda: |-
+          std::string t = "Musik · " + x;
+          lv_label_set_text(id(lbl_zone), t.c_str());
+  - platform: homeassistant
+    id: ha_player_state
+    entity_id: ${e_zustand}
+    on_value:
+      - lambda: |-
+          lv_label_set_text(id(lbl_play), x == "playing" ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+          id(titel_zeigen).execute();
+  - platform: homeassistant
+    id: ha_titel
+    entity_id: ${e_titel}
+    on_value:
+      - script.execute: titel_zeigen
+  - platform: homeassistant
+    id: ha_kuenstler
+    entity_id: ${e_kuenstler}
+    on_value:
+      - script.execute: titel_zeigen
+
+binary_sensor:
+  - platform: homeassistant
+    id: ha_feuer
+    entity_id: ${e_feuer}
+    on_press:
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 0;
+          then:
+            - if:
+                condition:
+                  switch.is_on: anzeige_bei_feuer
+                then:
+                  - script.execute: anzeige_dimmen
+    on_release:
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 2;
+          then:
+            - script.execute: anzeige_aus
+
+  # Taster im Drehknopf
+  - platform: gpio
+    id: taster
+    internal: true
+    pin:
+      number: GPIO0
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    filters:
+      - delayed_on: 20ms
+    on_click:
+      # kurz: Seite wechseln
+      - min_length: 20ms
+        max_length: 800ms
+        then:
+          - if:
+              condition:
+                lambda: return id(anzeige_modus) != 1;
+              then:
+                - script.execute: anzeige_wecken
+              else:
+                - lambda: |-
+                    id(seite) = id(seite) == 0 ? 1 : 0;
+                    lv_disp_trig_activity(nullptr);
+                - script.execute: seite_zeigen
+      # lang: nächste Musik-Zone (nur auf der Musik-Seite)
+      - min_length: 801ms
+        max_length: 5s
+        then:
+          - if:
+              condition:
+                lambda: return id(anzeige_modus) != 1;
+              then:
+                - script.execute: anzeige_wecken
+              else:
+                - lambda: lv_disp_trig_activity(nullptr);
+                - if:
+                    condition:
+                      lambda: return id(seite) == 1;
+                    then:
+                      - homeassistant.action:
+                          action: input_select.select_next
+                          data:
+                            entity_id: ${e_zone}
+                            cycle: "true"
+
+# ===========================================================================
+#  ABLÄUFE
+# ===========================================================================
+script:
+  - id: seite_zeigen
+    then:
+      - if:
+          condition:
+            lambda: return id(seite) == 1;
+          then:
+            - lvgl.page.show: page_musik
+          else:
+            - lvgl.page.show: page_kamin
+
+  - id: anzeige_wecken
+    then:
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+      - lvgl.widget.hide: wake_shield
+      - lambda: |-
+          id(anzeige_modus) = 1;
+          id(shift_idx) = 0;
+          lv_obj_set_style_translate_x(id(page_kamin).obj, 0, 0);
+          lv_obj_set_style_translate_y(id(page_kamin).obj, 0, 0);
+          lv_disp_trig_activity(nullptr);
+          id(main_display).set_brightness((uint8_t) (id(hell_aktiv).state * 2.55f));
+      - script.execute: seite_zeigen
+
+  - id: anzeige_dimmen
+    then:
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+      - lvgl.page.show: page_kamin
+      - lvgl.widget.show: wake_shield
+      - lambda: |-
+          id(anzeige_modus) = 2;
+          id(main_display).set_brightness((uint8_t) (id(hell_gedimmt).state * 2.55f));
+
+  - id: anzeige_aus
+    then:
+      - lvgl.widget.hide: wake_shield
+      - lvgl.page.show: page_leer
+      - lambda: |-
+          id(anzeige_modus) = 0;
+          id(main_display).set_brightness(0);
+      - delay: 300ms
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 0;
+          then:
+            - lvgl.pause:
+
+  - id: anzeige_idle
+    then:
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) == 1;
+          then:
+            - if:
+                condition:
+                  and:
+                    - binary_sensor.is_on: ha_feuer
+                    - switch.is_on: anzeige_bei_feuer
+                then:
+                  - script.execute: anzeige_dimmen
+                else:
+                  - script.execute: anzeige_aus
+
+  - id: drehen
+    parameters:
+      richtung: int
+    then:
+      - if:
+          condition:
+            lambda: return id(anzeige_modus) != 1;
+          then:
+            - script.execute: anzeige_wecken
+          else:
+            - lambda: lv_disp_trig_activity(nullptr);
+            - if:
+                condition:
+                  lambda: return id(seite) == 1;
+                then:
+                  - lambda: |-
+                      if (id(vol_soll) < 0) return;
+                      float v = id(vol_soll) + richtung * ${vol_schritt};
+                      id(vol_soll) = std::max(0.0f, std::min(v, 1.0f));
+                      id(vol_dreh_ms) = millis();
+                      id(vol_anzeigen).execute();
+                      id(vol_senden).execute();
+                # Kamin-Seite: hier kommen später weitere Ansichten
+                # (z. B. Wasserleistung / T.WT) zum Durchblättern hin.
+
+  - id: vol_anzeigen
+    then:
+      - lambda: |-
+          if (id(vol_soll) < 0) {
+            lv_label_set_text(id(lbl_vol), "--");
+            lv_arc_set_value(id(arc_vol), 0);
+            return;
+          }
+          int p = (int) roundf(id(vol_soll) * 100.0f);
+          lv_label_set_text_fmt(id(lbl_vol), "%d %%", p);
+          lv_arc_set_value(id(arc_vol), p);
+
+  - id: vol_senden
+    mode: restart
+    then:
+      - delay: 300ms
+      - homeassistant.action:
+          action: ${s_medien}
+          data:
+            befehl: lautstaerke
+            lautstaerke: !lambda return id(vol_soll);
+
+  - id: medien
+    parameters:
+      befehl: std::string
+    then:
+      - homeassistant.action:
+          action: ${s_medien}
+          data:
+            befehl: !lambda return befehl;
+
+  - id: titel_zeigen
+    then:
+      - lambda: |-
+          const std::string &z = id(ha_player_state).state;
+          const std::string &t = id(ha_titel).state;
+          bool aus = z == "off" || z == "unavailable" || z == "unknown" || z.empty();
+          if (aus || t.empty()) {
+            lv_label_set_text(id(lbl_titel), "Keine Wiedergabe");
+            lv_label_set_text(id(lbl_kuenstler), "");
+          } else {
+            lv_label_set_text(id(lbl_titel), t.c_str());
+            lv_label_set_text(id(lbl_kuenstler), id(ha_kuenstler).state.c_str());
+          }
+
+  - id: info_zeile
+    then:
+      - lambda: |-
+          char z[16] = "--", k[16] = "--";
+          if (!std::isnan(id(ha_t_ziel).state)) snprintf(z, sizeof(z), "%d°", (int) roundf(id(ha_t_ziel).state));
+          if (!std::isnan(id(ha_klappe).state)) snprintf(k, sizeof(k), "%d %%", (int) roundf(id(ha_klappe).state));
+          lv_label_set_text_fmt(id(lbl_info), "Ziel %s  ·  Klappe %s", z, k);
+
+  - id: modus_setzen
+    parameters:
+      modus: std::string
+    then:
+      - homeassistant.action:
+          action: input_select.select_option
+          data:
+            entity_id: ${e_modus}
+            option: !lambda return modus;
+
+# Einbrennschutz im gedimmten Zustand: Inhalt im 3-px-Raster verschieben
+interval:
+  - interval: 2min
+    then:
+      - lambda: |-
+          if (id(anzeige_modus) != 2) return;
+          static const int8_t dx[] = {0, 3, 3, 0, -3, -3, -3, 0, 3};
+          static const int8_t dy[] = {0, 0, 3, 3, 3, 0, -3, -3, -3};
+          id(shift_idx) = (id(shift_idx) + 1) % 9;
+          lv_obj_set_style_translate_x(id(page_kamin).obj, dx[id(shift_idx)], 0);
+          lv_obj_set_style_translate_y(id(page_kamin).obj, dy[id(shift_idx)], 0);
+
+# ===========================================================================
+#  SCHRIFTEN
+# ===========================================================================
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 500
+    id: f_gross
+    size: 100
+    glyphs: "0123456789-°"
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 500
+    id: f_mittel
+    size: 32
+    glyphsets: [GF_Latin_Core]
+    glyphs: "·…–"
+    ignore_missing_glyphs: true
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: f_klein
+    size: 24
+    glyphsets: [GF_Latin_Core]
+    glyphs: "·…–"
+    ignore_missing_glyphs: true
+
+# ===========================================================================
+#  OBERFLÄCHE (LVGL)
+# ===========================================================================
+lvgl:
+  id: lv
+  displays: [main_display]
+  touchscreens: [main_touchscreen]
+  buffer_size: 25%
+  draw_rounding: 2
+  bg_color: 0x000000
+  default_font: f_klein
+  text_color: 0xFFFFFF
+  on_idle:
+    timeout: !lambda return (uint32_t) (id(anzeige_timeout).state * 1000);
+    then:
+      - script.execute: anzeige_idle
+
+  style_definitions:
+    - id: st_seite
+      bg_color: 0x000000
+      bg_opa: COVER
+      border_width: 0
+      pad_all: 0
+      scrollbar_mode: "OFF"
+    - id: st_knopf
+      bg_color: 0x1F1F1F
+      bg_opa: COVER
+      border_width: 0
+      shadow_width: 0
+      radius: 26
+      text_color: 0xE0E0E0
+
+  # Unsichtbare Fläche über allem: im gedimmten Zustand fängt sie die erste
+  # Berührung ab (weckt nur, kein versehentlicher Leistungsmodus-Wechsel).
+  top_layer:
+    widgets:
+      - obj:
+          id: wake_shield
+          align: CENTER
+          width: 100%
+          height: 100%
+          bg_opa: TRANSP
+          border_width: 0
+          hidden: true
+          on_release:
+            - script.execute: anzeige_wecken
+
+  pages:
+    # ---------------------------------------------------------------- KAMIN
+    - id: page_kamin
+      styles: st_seite
+      widgets:
+        - arc:
+            id: arc_t
+            align: CENTER
+            width: 440
+            height: 440
+            min_value: 0
+            max_value: ${t_skala_max}
+            value: 0
+            adjustable: false
+            clickable: false
+            arc_width: 22
+            arc_color: 0x262626
+            indicator:
+              arc_width: 22
+              arc_color: 0x9E9E9E
+            knob:
+              bg_opa: TRANSP
+              pad_all: 0
+        - label:
+            align: CENTER
+            y: -160
+            text: "Kamin"
+            text_color: 0x8A8A8A
+        - label:
+            id: lbl_phase
+            align: CENTER
+            y: -112
+            text: "--"
+            text_font: f_mittel
+        - label:
+            id: lbl_t
+            align: CENTER
+            y: -28
+            text: "--"
+            text_font: f_gross
+        - label:
+            id: lbl_info
+            align: CENTER
+            y: 50
+            text: "Ziel --  ·  Klappe --"
+            text_color: 0xBDBDBD
+        - button:
+            id: btn_eco
+            styles: st_knopf
+            align: CENTER
+            x: -92
+            y: 142
+            width: 84
+            height: 52
+            checked:
+              bg_color: 0x2E7D32
+              text_color: 0xFFFFFF
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Eco"
+            on_click:
+              - script.execute:
+                  id: modus_setzen
+                  modus: "Eco"
+        - button:
+            id: btn_normal
+            styles: st_knopf
+            align: CENTER
+            x: 0
+            y: 142
+            width: 84
+            height: 52
+            checked:
+              bg_color: 0xEF6C00
+              text_color: 0xFFFFFF
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Normal"
+                  text_font: f_klein
+            on_click:
+              - script.execute:
+                  id: modus_setzen
+                  modus: "Normal"
+        - button:
+            id: btn_power
+            styles: st_knopf
+            align: CENTER
+            x: 92
+            y: 142
+            width: 84
+            height: 52
+            checked:
+              bg_color: 0xC62828
+              text_color: 0xFFFFFF
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Power"
+            on_click:
+              - script.execute:
+                  id: modus_setzen
+                  modus: "Power"
+
+    # ---------------------------------------------------------------- MUSIK
+    - id: page_musik
+      styles: st_seite
+      widgets:
+        - arc:
+            id: arc_vol
+            align: CENTER
+            width: 440
+            height: 440
+            min_value: 0
+            max_value: 100
+            value: 0
+            adjustable: false
+            clickable: false
+            arc_width: 22
+            arc_color: 0x262626
+            indicator:
+              arc_width: 22
+              arc_color: 0x26C6DA
+            knob:
+              bg_opa: TRANSP
+              pad_all: 0
+        - label:
+            id: lbl_zone
+            align: CENTER
+            y: -160
+            text: "Musik"
+            text_color: 0x8A8A8A
+        - label:
+            id: lbl_titel
+            align: CENTER
+            y: -70
+            width: 320
+            text_align: CENTER
+            long_mode: SCROLL_CIRCULAR
+            text: "Keine Wiedergabe"
+            text_font: f_mittel
+        - label:
+            id: lbl_kuenstler
+            align: CENTER
+            y: -25
+            width: 320
+            text_align: CENTER
+            long_mode: DOT
+            text: ""
+            text_color: 0xBDBDBD
+        - label:
+            id: lbl_vol
+            align: CENTER
+            y: 45
+            text: "--"
+            text_font: f_mittel
+            text_color: 0x26C6DA
+        - button:
+            styles: st_knopf
+            align: CENTER
+            x: -92
+            y: 142
+            width: 84
+            height: 52
+            widgets:
+              - label:
+                  align: CENTER
+                  text: ""
+                  text_font: montserrat_28
+            on_click:
+              - script.execute:
+                  id: medien
+                  befehl: "zurueck"
+        - button:
+            styles: st_knopf
+            align: CENTER
+            x: 0
+            y: 142
+            width: 84
+            height: 52
+            widgets:
+              - label:
+                  id: lbl_play
+                  align: CENTER
+                  text: ""
+                  text_font: montserrat_28
+            on_click:
+              - script.execute:
+                  id: medien
+                  befehl: "play_pause"
+        - button:
+            styles: st_knopf
+            align: CENTER
+            x: 92
+            y: 142
+            width: 84
+            height: 52
+            widgets:
+              - label:
+                  align: CENTER
+                  text: ""
+                  text_font: montserrat_28
+            on_click:
+              - script.execute:
+                  id: medien
+                  befehl: "weiter"
+
+    # ---------------------------------------------------------------- AUS
+    - id: page_leer
+      styles: st_seite
+      widgets: []

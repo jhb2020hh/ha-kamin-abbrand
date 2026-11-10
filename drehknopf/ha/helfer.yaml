@@ -1,0 +1,48 @@
+# Helfer für den Kamin-Drehknopf, in HA über die Oberfläche angelegt (Einstellungen → Geräte & Dienste → Helfer).
+# Export als Referenz, nicht zum direkten Einlesen.
+- name: Drehknopf Zone
+  typ: input_select
+  icon: mdi:speaker-multiple
+  options:
+  - Küche
+  - Wohnzimmer Denon
+  - Wohnzimmer Apple TV
+- name: Drehknopf Steuer-Player
+  typ: template/sensor
+  icon: mdi:play-network
+  state: |-
+    {% set z = states('input_select.drehknopf_zone') %}
+    {# Je Zone: [Music-Assistant-Player, Geräte-Player]. MA hat Vorrang, wenn es spielt (sonst gehen Weiter/Zurück ins Leere). #}
+    {% set m = {'Küche': ['media_player.kuche_2', 'media_player.kuche'],
+                'Wohnzimmer Denon': ['media_player.living_room', 'media_player.denon_2'],
+                'Wohnzimmer Apple TV': ['media_player.wohnzimmer_2', 'media_player.wohnzimmer']} %}
+    {% set p = m.get(z, m['Küche']) %}
+    {% if is_state(p[0], 'playing') %}{{ p[0] }}
+    {% elif is_state(p[1], 'playing') %}{{ p[1] }}
+    {% elif is_state(p[0], 'paused') %}{{ p[0] }}
+    {% else %}{{ p[1] }}{% endif %}
+- name: Drehknopf Lautstärke-Player
+  typ: template/sensor
+  icon: mdi:volume-high
+  state: |-
+    {# Lautstärke immer am Gerät selbst: Küche = Sonos, Wohnzimmer (Denon und Apple TV) = Denon-Receiver #}
+    {{ 'media_player.kuche' if is_state('input_select.drehknopf_zone', 'Küche') else 'media_player.denon' }}
+- name: Drehknopf Titel
+  typ: template/sensor
+  icon: mdi:music-note
+  state: '{{ (state_attr(states(''sensor.drehknopf_steuer_player''), ''media_title'') or '''') | string | truncate(250, true, ''…'') }}'
+- name: Drehknopf Künstler
+  typ: template/sensor
+  icon: mdi:account-music
+  state: '{{ (state_attr(states(''sensor.drehknopf_steuer_player''), ''media_artist'') or '''') | string | truncate(250, true, ''…'') }}'
+- name: Drehknopf Zustand
+  typ: template/sensor
+  icon: mdi:play-pause
+  state: '{{ states(states(''sensor.drehknopf_steuer_player'')) }}'
+- name: Drehknopf Lautstärke
+  typ: template/sensor
+  icon: mdi:volume-medium
+  state: '{{ ((state_attr(states(''sensor.drehknopf_lautstarke_player''), ''volume_level'') | float(0)) * 100) | round(0) }}'
+  unit_of_measurement: '%'
+  additional_options:
+    availability: '{{ state_attr(states(''sensor.drehknopf_lautstarke_player''), ''volume_level'') is number }}'

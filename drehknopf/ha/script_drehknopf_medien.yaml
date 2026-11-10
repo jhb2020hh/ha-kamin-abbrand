@@ -1,0 +1,62 @@
+# script.drehknopf_medien – Export aus HA (2026-11-10)
+drehknopf_medien:
+  alias: Drehknopf – Medien steuern
+  description: Befehle vom Kamin-Drehknopf an die aktive Zone (input_select.drehknopf_zone). Wiedergabe geht an sensor.drehknopf_steuer_player (MA, wenn es spielt, sonst Gerät), Lautstärke an sensor.drehknopf_lautstarke_player
+    (Sonos bzw. Denon-Receiver).
+  mode: queued
+  max: 10
+  icon: mdi:knob
+  fields:
+    befehl:
+      name: Befehl
+      required: true
+      selector:
+        select:
+          options:
+          - play_pause
+          - weiter
+          - zurueck
+          - lautstaerke
+    lautstaerke:
+      name: Lautstärke (0–1)
+      description: Nur für Befehl lautstaerke
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.01
+  sequence:
+  - variables:
+      steuer: '{{ states(''sensor.drehknopf_steuer_player'') }}'
+      laut: '{{ states(''sensor.drehknopf_lautstarke_player'') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ befehl == ''play_pause'' }}'
+      sequence:
+      - action: media_player.media_play_pause
+        target:
+          entity_id: '{{ steuer }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ befehl == ''weiter'' }}'
+      sequence:
+      - action: media_player.media_next_track
+        target:
+          entity_id: '{{ steuer }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ befehl == ''zurueck'' }}'
+      sequence:
+      - action: media_player.media_previous_track
+        target:
+          entity_id: '{{ steuer }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ befehl == ''lautstaerke'' and lautstaerke is number }}'
+      sequence:
+      - action: media_player.volume_set
+        target:
+          entity_id: '{{ laut }}'
+        data:
+          volume_level: '{{ [0, [lautstaerke | float, 1] | min] | max }}'

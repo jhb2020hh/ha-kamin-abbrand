@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kamin-Drehknopf Wireframes</title>
+<style>
+:root{--bg:#f4f3ef;--card:#fff;--text:#1f1f1d;--muted:#5f5e5a}
+@media (prefers-color-scheme:dark){:root{--bg:#1b1b1a;--card:#262624;--text:#eee;--muted:#b4b2a9}}
+body{margin:0;padding:24px 16px;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
+h1{font-size:20px;font-weight:500;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;max-width:1000px}
+.cell{background:var(--card);border-radius:12px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.cell svg{width:240px;height:240px}
+.cap{font-size:14px;font-weight:500;margin:0}
+.sub{font-size:13px;color:var(--muted);margin:0;text-align:center;line-height:1.5}
+.leg{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:1000px;margin-top:16px}
+.leg div{background:var(--card);border-radius:8px;padding:12px;font-size:13px;color:var(--muted);line-height:1.5}
+.leg b{display:block;font-weight:500;color:var(--text)}
+</style>
+</head>
+<body>
+<h1>Kamin-Drehknopf – Wireframes (466 × 466 px, Stand 2026-11-10)</h1>
+<div class="grid">
+<div class="cell">
+<svg viewBox="0 0 486 486" role="img"><title>Kamin aktiv</title>
+<circle cx="243" cy="243" r="240" fill="#3a3a3a"/><circle cx="243" cy="243" r="233" fill="#000"/>
+<g transform="translate(10 10)">
+<path class="arc" data-f="1" stroke="#262626"/><path class="arc" data-f="0.82" stroke="#FF6D00"/>
+<text x="233" y="73" fill="#9E9E9E" font-size="24" text-anchor="middle" dominant-baseline="central">Kamin</text>
+<text x="233" y="121" fill="#FF6D00" font-size="32" font-weight="500" text-anchor="middle" dominant-baseline="central">Abbrand</text>
+<text x="233" y="205" fill="#fff" font-size="100" font-weight="500" text-anchor="middle" dominant-baseline="central">287°</text>
+<text x="233" y="283" fill="#BDBDBD" font-size="24" text-anchor="middle" dominant-baseline="central">Ziel 280° · Klappe 45 %</text>
+<rect x="99" y="349" width="84" height="52" rx="12" fill="#1E1E1E" stroke="#444"/><text x="141" y="375" fill="#ddd" font-size="22" text-anchor="middle" dominant-baseline="central">Eco</text>
+<rect x="191" y="349" width="84" height="52" rx="12" fill="#EF6C00"/><text x="233" y="375" fill="#fff" font-size="22" text-anchor="middle" dominant-baseline="central">Normal</text>
+<rect x="283" y="349" width="84" height="52" rx="12" fill="#1E1E1E" stroke="#444"/><text x="325" y="375" fill="#ddd" font-size="22" text-anchor="middle" dominant-baseline="central">Power</text>
+</g></svg>
+<p class="cap">1 · Kamin, aktiv</p>
+<p class="sub">Bogen = Abgastemperatur 0–350 °C, Farbe folgt der Phase. Leistungsmodus per Touch.</p>
+</div>
+<div class="cell">
+<svg viewBox="0 0 486 486" role="img"><title>Kamin gedimmt</title>
+<circle cx="243" cy="243" r="240" fill="#3a3a3a"/><circle cx="243" cy="243" r="233" fill="#000"/>
+<g transform="translate(13 7)" opacity="0.35">
+<path class="arc" data-f="1" stroke="#262626"/><path class="arc" data-f="0.82" stroke="#FF6D00"/>
+<text x="233" y="73" fill="#9E9E9E" font-size="24" text-anchor="middle" dominant-baseline="central">Kamin</text>
+<text x="233" y="121" fill="#FF6D00" font-size="32" font-weight="500" text-anchor="middle" dominant-baseline="central">Abbrand</text>
+<text x="233" y="205" fill="#fff" font-size="100" font-weight="500" text-anchor="middle" dominant-baseline="central">287°</text>
+<text x="233" y="283" fill="#BDBDBD" font-size="24" text-anchor="middle" dominant-baseline="central">Ziel 280° · Klappe 45 %</text>
+<rect x="99" y="349" width="84" height="52" rx="12" fill="#1E1E1E" stroke="#444"/><rect x="191" y="349" width="84" height="52" rx="12" fill="#EF6C00"/><rect x="283" y="349" width="84" height="52" rx="12" fill="#1E1E1E" stroke="#444"/>
+</g></svg>
+<p class="cap">2 · Kamin, gedimmt (Feuer an)</p>
+<p class="sub">Nach Timeout ohne Bedienung: 25 % Helligkeit, alle 2 min 3 px Versatz. Erste Berührung weckt nur.</p>
+</div>
+<div class="cell">
+<svg viewBox="0 0 486 486" role="img"><title>Musik</title>
+<circle cx="243" cy="243" r="240" fill="#3a3a3a"/><circle cx="243" cy="243" r="233" fill="#000"/>
+<g transform="translate(10 10)">
+<path class="arc" data-f="1" stroke="#262626"/><path class="arc" data-f="0.35" stroke="#26C6DA"/>
+<text x="233" y="73" fill="#9E9E9E" font-size="24" text-anchor="middle" dominant-baseline="central">Musik · Küche</text>
+<text x="233" y="163" fill="#fff" font-size="32" font-weight="500" text-anchor="middle" dominant-baseline="central">Bohemian Rhaps…</text>
+<text x="233" y="208" fill="#BDBDBD" font-size="24" text-anchor="middle" dominant-baseline="central">Queen</text>
+<text x="233" y="278" fill="#26C6DA" font-size="32" font-weight="500" text-anchor="middle" dominant-baseline="central">35 %</text>
+<circle cx="141" cy="375" r="30" fill="#1E1E1E" stroke="#444"/><path d="M131 362v26M153 362l-17 13 17 13z" stroke="#ddd" stroke-width="3" fill="#ddd"/>
+<circle cx="233" cy="375" r="34" fill="#26C6DA"/><path d="M224 357v36M242 357v36" stroke="#000" stroke-width="9"/>
+<circle cx="325" cy="375" r="30" fill="#1E1E1E" stroke="#444"/><path d="M335 362v26M313 362l17 13-17 13z" stroke="#ddd" stroke-width="3" fill="#ddd"/>
+</g></svg>
+<p class="cap">3 · Musik</p>
+<p class="sub">Bogen = Lautstärke am Sonos bzw. Denon. Titel läuft durch, Zone folgt der Wiedergabe.</p>
+</div>
+<div class="cell">
+<svg viewBox="0 0 486 486" role="img"><title>Aus</title>
+<circle cx="243" cy="243" r="240" fill="#3a3a3a"/><circle cx="243" cy="243" r="233" fill="#000"/>
+<text x="243" y="243" fill="#555" font-size="22" text-anchor="middle" dominant-baseline="central">Pixel aus · LVGL pausiert</text>
+</svg>
+<p class="cap">4 · Aus</p>
+<p class="sub">Kein Feuer und keine Bedienung. Drehen, Drücken oder Berühren weckt auf.</p>
+</div>
+</div>
+<div class="leg">
+<div><b>Kurz drücken</b>Kamin ↔ Musik</div>
+<div><b>Lang drücken (Musik)</b>Nächste Zone</div>
+<div><b>Drehen</b>Musik: Lautstärke ±2 %. Kamin: frei für spätere Ansichten</div>
+<div><b>Touch</b>Modus bzw. Zurück, Play, Weiter</div>
+</div>
+<script>
+document.querySelectorAll('.arc').forEach(p=>{const f=+p.dataset.f,c=233,r=212,a0=135,a1=135+270*f,rad=d=>d*Math.PI/180,pt=d=>[c+r*Math.cos(rad(d)),c+r*Math.sin(rad(d))];const[s0,s1]=pt(a0),[e0,e1]=pt(a1);p.setAttribute('d',`M${s0} ${s1}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${e0} ${e1}`);p.setAttribute('fill','none');p.setAttribute('stroke-width','16');p.setAttribute('stroke-linecap','round')});
+</script>
+</body>
+</html>
