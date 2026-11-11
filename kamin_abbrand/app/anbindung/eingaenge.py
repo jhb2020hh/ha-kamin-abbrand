@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Iterable, Optional
 
 from anbindung.ableitung import Ableitung
-from anbindung.anlagenprofil import temperatur_nach_c
+from anbindung.anlagenprofil import Anlagenprofil, rueckmeldung_prozent, temperatur_nach_c
 from kern.typen import (
     BEDIENUNG,
     PHASEN,
@@ -300,6 +300,13 @@ class Eingaenge:
             helligkeit = als_zahl(eintrag.attribute.get("brightness"))
             return None if helligkeit is None else float(round(helligkeit * 100 / 255))
         return als_zahl(eintrag.zustand)
+
+    def klappe_ist(self, eid: Optional[str], profil: Anlagenprofil) -> Optional[float]:
+        """Iststellung in %. Ein Sensor kann Volt oder mA melden, dann rechnet das Anlagenprofil um."""
+        eintrag = self.eintrag(eid)
+        if eintrag is None or eid.split(".", 1)[0] in ("cover", "light"):
+            return self.stellung(eid)
+        return rueckmeldung_prozent(self.stellung(eid), eintrag.attribute.get("unit_of_measurement"), profil)
 
     def wert(self, eid: Optional[str]) -> Optional[str]:
         return self._wert(eid)

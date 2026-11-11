@@ -98,6 +98,8 @@ class Anlagenprofil:
     klappe_motorisiert: bool = True
     klappe_invertiert: bool = False     # 100 % Soll heißt am Ausgang 0
     klappe_y0: float = 0.0              # Startspannung in V eines Antriebs mit z. B. 2-10-V-Eingang (nur Licht)
+    rueck_zu: Optional[float] = None    # Rückmeldung bei Klappe zu, in der Einheit des Sensors; None: Vorgabe der Einheit
+    rueck_auf: Optional[float] = None   # Rückmeldung bei Klappe auf
     tuerkontakt: bool = True
     waehrung: str = WAEHRUNG_VORGABE
     erzeuger: tuple[Erzeuger, ...] = ()
@@ -237,6 +239,10 @@ def profil_pruefen(roh: Any) -> Anlagenprofil:
     if ofen not in OFENARTEN:
         raise ProfilFehler("Bitte die Ofenart wählen: luftgeführt oder wassergeführt.")
     wasser = ofen == WASSER
+    rueck_zu = _zahl(roh.get("rueck_zu"), "Rückmeldung bei zu", -RUECK_GRENZE, RUECK_GRENZE)
+    rueck_auf = _zahl(roh.get("rueck_auf"), "Rückmeldung bei auf", -RUECK_GRENZE, RUECK_GRENZE)
+    if rueck_zu is not None and rueck_auf is not None and abs(rueck_auf - rueck_zu) < RUECK_MIN_ABSTAND:
+        raise ProfilFehler(f"Rückmeldung: Zu und auf müssen mindestens {RUECK_MIN_ABSTAND:g} auseinanderliegen.")
     liste = roh.get("erzeuger") or []
     if not isinstance(liste, (list, tuple)):
         raise ProfilFehler("Die Liste der Wärmeerzeuger ist ungültig.")
@@ -248,6 +254,8 @@ def profil_pruefen(roh: Any) -> Anlagenprofil:
         klappe_motorisiert=_ja(roh, "klappe_motorisiert", "Klappe", True),
         klappe_invertiert=_ja(roh, "klappe_invertiert", "Klappe invertiert", False),
         klappe_y0=_zahl(roh.get("klappe_y0"), "Startspannung", 0, 9.5) or 0.0,
+        rueck_zu=rueck_zu,
+        rueck_auf=rueck_auf,
         tuerkontakt=_ja(roh, "tuerkontakt", "Türkontakt", True),
         waehrung=_waehrung(roh.get("waehrung")),
         erzeuger=tuple(_erzeuger(e) for e in liste),
@@ -264,6 +272,41 @@ def profil_aus_bestand(rollen: Mapping[str, str], tuerkontakt: bool = True) -> A
 
 
 # ---- Umrechnen -----------------------------------------------------------
+
+# Rückmeldung der Klappe: Messwert bei zu und auf je Einheit des Sensors, wenn nichts eingetragen ist.
+RUECK_VORGABEN: dict[str, tuple[float, float]] = {"%": (0.0, 100.0), "v": (2.0, 10.0), "ma": (4.0, 20.0)}
+RUECK_GRENZE = 100000.0
+RUECK_MIN_ABSTAND = 1.0
+
+
+def rueck_vorgabe(einheit: Optional[str]) -> Optional[tuple[float, float]]:
+    """Vorgabe für zu/auf nach Einheit. Ohne Einheit gilt Prozent, eine unbekannte Einheit hat keine."""
+    schluessel = (einheit or "%").strip().casefold() or "%"
+    return RUECK_VORGABEN.get(schluessel)
+
+
+def rueck_kennlinie(profil: Anlagenprofil, einheit: Optional[str]) -> Optional[tuple[float, float]]:
+    """Messwert bei zu und auf. Eigene Werte gehen vor, ein leeres Feld nimmt die Vorgabe der Einheit."""
+    vorgabe = rueck_vorgabe(einheit)
+    zu = profil.rueck_zu if profil.rueck_zu is not None else (vorgabe[0] if vorgabe else None)
+    auf = profil.rueck_auf if profil.rueck_auf is not None else (vorgabe[1] if vorgabe else None)
+    if zu is None or auf is None or abs(auf - zu) < RUECK_MIN_ABSTAND:
+        return None
+    return zu, auf
+
+
+def rueckmeldung_prozent(roh: Optional[float], einheit: Optional[str], profil: Anlagenprofil) -> Optional[float]:
+    """Klappenstellung in % aus der Rückmeldung, linear zwischen zu und auf, begrenzt auf 0–100.
+
+    zu > auf ist eine invertierte Rückmeldung. None, wenn der Wert fehlt oder die Einheit unbekannt ist
+    und keine eigenen Werte eingetragen sind.
+    """
+    kennlinie = rueck_kennlinie(profil, einheit)
+    if roh is None or kennlinie is None:
+        return None
+    zu, auf = kennlinie
+    return min(max((roh - zu) / (auf - zu) * 100.0, 0.0), 100.0)
+
 
 
 def art_von(brennstoff: Brennstoff) -> Art:

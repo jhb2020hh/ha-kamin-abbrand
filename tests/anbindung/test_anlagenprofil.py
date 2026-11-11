@@ -231,3 +231,44 @@ def test_vollstaendig_ist_nichts_zu_melden():
     rollen = {r: "sensor.x" for r in ("abgas", "energiezaehler", "t_aussen", "t_wt", "vorlauf", "ruecklauf", "pumpe", "puffer_unten", "waermezaehler")}
     p = profil(erzeuger=[{"art": "solarthermie"}], holz={"preis": 100, "preis_einheit": "rm"})
     assert fehlende_angaben(p, rollen) == []
+
+
+# ---- Rückmeldung der Klappe ------------------------------------------------
+
+from anbindung.anlagenprofil import rueck_kennlinie, rueckmeldung_prozent  # noqa: E402
+
+
+@pytest.mark.parametrize("roh,einheit,erwartet", [
+    (6.0, "V", 50.0), (2.0, "V", 0.0), (10.0, "V", 100.0), (1.0, "V", 0.0), (11.0, "V", 100.0),
+    (12.0, "mA", 50.0), (40.0, "%", 40.0), (40.0, None, 40.0), (40.0, "", 40.0), (6.0, " v ", 50.0),
+])
+def test_rueckmeldung_vorgabe_je_einheit(roh, einheit, erwartet):
+    assert rueckmeldung_prozent(roh, einheit, profil()) == pytest.approx(erwartet)
+
+
+def test_rueckmeldung_eigene_werte_wie_hilfsfuehler_der_automation():
+    p = profil(rueck_zu=1.87, rueck_auf=10.01)
+    assert rueckmeldung_prozent(5.79, "V", p) == pytest.approx(48.157, abs=0.01)
+    assert rueck_kennlinie(p, "V") == (1.87, 10.01)
+
+
+def test_rueckmeldung_invertiert_und_ein_feld_leer():
+    assert rueckmeldung_prozent(2.0, "V", profil(rueck_zu=10, rueck_auf=2)) == pytest.approx(100.0)
+    # Nur auf eingetragen: zu kommt aus der Vorgabe der Einheit.
+    assert rueckmeldung_prozent(6.0, "V", profil(rueck_auf=8)) == pytest.approx(66.667, abs=0.01)
+
+
+def test_rueckmeldung_unbekannte_einheit_braucht_eigene_werte():
+    assert rueckmeldung_prozent(500.0, "mV", profil()) is None
+    assert rueckmeldung_prozent(500.0, "mV", profil(rueck_zu=0, rueck_auf=1000)) == pytest.approx(50.0)
+    assert rueckmeldung_prozent(None, "V", profil()) is None
+
+
+def test_rueckmeldung_pruefung():
+    with pytest.raises(ProfilFehler, match="mindestens 1"):
+        profil(rueck_zu=5, rueck_auf=5.5)
+    with pytest.raises(ProfilFehler, match="Rückmeldung bei zu"):
+        profil(rueck_zu="x")
+    alt = profil()
+    assert alt.rueck_zu is None and alt.rueck_auf is None
+    assert profil_pruefen(profil(rueck_zu=1.87, rueck_auf=10.01).als_dict()).rueck_auf == 10.01

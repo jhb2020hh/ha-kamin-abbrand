@@ -434,6 +434,22 @@ function klappliste(wert, einheiten, titel, beiWechsel) {
 function zahlAngabe(objekt, name, titel, einheit, vorgabe) {
   return angabe(titel, h("input", { type: "number", step: "any", value: objekt[name] ?? "", placeholder: vorgabe ?? "", "aria-label": titel, oninput: (e) => { objekt[name] = e.target.value === "" ? null : Number(e.target.value); } }), einheit && h("span", { klasse: "leise" }, einheit));
 }
+function rueckmeldungAngaben(p, r) {
+  // Rückmeldung der Klappe: Messwert bei zu und auf, in der Einheit des Sensors. Leer heißt Vorgabe der Einheit.
+  if (!r) return null;
+  const einheit = r.einheit || "%";
+  const vorgabe = r.vorgabe || [null, null];
+  const jetzt = r.wert !== null && (r.prozent !== null
+    ? `Jetzt ${zahl(r.wert, 2)} ${einheit} → ${zahl(r.prozent)} %`
+    : `Jetzt ${zahl(r.wert, 2)} ${einheit}, ohne Werte für zu und auf nicht umrechenbar`);
+  return h("div", { stil: "margin:0 0 12px" },
+    h("div", { klasse: "etikett" }, "Rückmeldung der Klappe"),
+    h("p", { klasse: "leise" }, `Welcher Messwert von ${r.entitaet} heißt zu und welcher auf? Leer lassen für die Vorgabe der Einheit. Ist zu größer als auf, gilt die Rückmeldung als invertiert.`),
+    h("div", { klasse: "angaben" },
+      zahlAngabe(p, "rueck_zu", "Rückmeldung bei zu (0 %)", einheit, vorgabe[0] !== null ? String(vorgabe[0]) : "eintragen"),
+      zahlAngabe(p, "rueck_auf", "Rückmeldung bei auf (100 %)", einheit, vorgabe[1] !== null ? String(vorgabe[1]) : "eintragen")),
+    jetzt && h("p", { klasse: "leise", stil: "margin-top:4px" }, jetzt, " (mit den gespeicherten Werten)"));
+}
 function jaNein(objekt, name, titel, hilfe, neu) {
   return h("label", { klasse: "schalter" }, h("input", { type: "checkbox", checked: objekt[name], onchange: (e) => { objekt[name] = e.target.checked; neu(); } }), h("span", {}, h("b", {}, titel), h("div", { klasse: "leise" }, hilfe)));
 }
@@ -509,6 +525,7 @@ async function anlageZeichnen() {
         jaNein(p, "klappe_motorisiert", "Die Luftklappe hat einen Motor", "Ohne Motor entfallen Klappenstellung, Wartung und Handbetrieb.", neu),
         p.klappe_motorisiert && jaNein(p, "klappe_invertiert", "Klappe invertiert", "Der Antrieb schließt bei hohem Signal. Falsch eingestellt schließt die Klappe, wenn sie öffnen soll. Gibt es den Helfer der Automation, gilt dessen Wert.", neu),
         p.klappe_motorisiert && h("div", { klasse: "angaben", stil: "margin:0 0 12px" }, zahlAngabe(p, "klappe_y0", "Startspannung bei einer Ausgabe als Licht (z. B. 2 bei 2-10-V-Antrieb)", "V", "0")),
+        p.klappe_motorisiert && rueckmeldungAngaben(p, d.rueckmeldung),
         jaNein(p, "tuerkontakt", "Es gibt einen Türkontakt", "Ohne Türkontakt erkennt die App das Nachlegen nur am Temperaturanstieg. Gilt nur für die App.", neu)),
       h("div", { klasse: "karte" }, h("h2", {}, "Wärmeerzeuger"), h("p", { klasse: "leise" }, "Womit würdest du ohne den Ofen heizen? Beliebig viele, die Anteile müssen zusammen 100 % ergeben."),
         p.erzeuger.map((e) => erzeugerZeile(e, p, d, staende, neu)),
@@ -549,7 +566,7 @@ function rolleZeile(r, stand) {
   return h("div", { klasse: "rolle" },
     h("div", {}, h("span", { klasse: "titel" }, r.titel), " ", h("span", { klasse: `chip ${r.stufe}` }, STUFE_TEXT[r.stufe]), h("div", { klasse: "leise" }, r.hilfe)),
     h("div", {}, auswahlFeld(r, stand),
-      r.entitaet && r.wert !== null && h("div", { klasse: "aktuell" }, `${r.name || r.entitaet}: ${r.wert}${r.wert_einheit ? " " + r.wert_einheit : ""}${r.alter_s !== null ? ` · vor ${dauer(r.alter_s)}` : ""}`),
+      r.entitaet && r.wert !== null && h("div", { klasse: "aktuell" }, `${r.name || r.entitaet}: ${r.wert}${r.wert_einheit ? " " + r.wert_einheit : ""}${r.umgerechnet !== undefined && r.umgerechnet !== null ? ` → ${r.umgerechnet} %` : ""}${r.alter_s !== null ? ` · vor ${dauer(r.alter_s)}` : ""}`),
       r.warnung && h("div", { klasse: "warnung" }, r.warnung)));
 }
 async function eingaengeZeichnen() {

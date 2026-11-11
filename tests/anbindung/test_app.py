@@ -978,3 +978,17 @@ def test_lauschen_beendet_den_handbetrieb(tmp_path):
                 assert s.hand_bis is None and not app.hand_aktiv(app._uhr())
 
     asyncio.run(ablauf())
+
+
+def test_klappe_ist_in_volt_wird_fuer_anzeige_und_abweichung_umgerechnet(tmp_path):
+    s = betrieb_speicher(tmp_path, modus="lauschen", klappe_ist="sensor.rueckmeldung")
+    s.profil_setzen(s.anlagenprofil.als_dict() | {"rueck_zu": 1.87, "rueck_auf": 10.01})
+    app = App(partial(HaClient, TOKEN, ws_url="ws://x", rest_url="http://x"),
+              Eingaenge(s.entitaeten(), "kamin_abbrand", zusatz=("sensor.rueckmeldung",)), Verlauf(tmp_path),
+              steuerung_fabrik=StubFabrik(), speicher=s)
+    app.eingaenge.aufbauen([{"entity_id": "sensor.rueckmeldung", "state": "5.79",
+                             "attributes": {"unit_of_measurement": "V"}, "last_changed": None,
+                             "last_reported": None, "last_updated": None}], 1000.0)
+    assert app.klappe_ist_prozent("sensor.rueckmeldung") == pytest.approx(48.16, abs=0.01)
+    # Die Abweichungsprüfung der Ausgänge bekommt Prozent, nicht Volt.
+    assert app.ausgaenge._stellung("sensor.rueckmeldung") == pytest.approx(48.16, abs=0.01)

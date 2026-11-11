@@ -29,6 +29,10 @@ Im Betrieb führt der Regelstand `neu`. Rollen und Anlage lassen sich dann nicht
 
 **Sicherer Zustand ist Klappe 100 % offen.** Dorthin fährt die App beim Zurückschalten auf Lauschen, beim Beenden, bei einem Fehler im Rechenkern und wenn eine Bedingung im Lauf wegfällt. In den letzten beiden Fällen fällt sie außerdem auf Lauschen zurück und meldet das. Kurze Ausfälle von Fühler, Klappe oder Verbindung überbrückt sie 30 Sekunden. Solange die App ein heißes Feuer nicht einordnen kann, bleibt die Klappe offen. Ist die Verbindung zu Home Assistant weg, kann die App nichts mehr schalten; dafür ist der Watchdog da. Fahre den ersten Abbrand im Betrieb unter Aufsicht.
 
+### Rückmeldung der Klappe
+
+Die Rolle „Klappe Iststellung“ darf einen Sensor in %, V oder mA bekommen. Die App rechnet linear in Prozent um. Ohne eigene Werte gilt die Vorgabe der Einheit: 0–100 % bzw. 2–10 V bzw. 4–20 mA. Misst dein Antrieb andere Endwerte, trägst du unter Anlage „Rückmeldung bei zu“ und „bei auf“ ein, zum Beispiel 1,87 und 10,01 V. Ist der Wert bei zu größer als bei auf, gilt die Rückmeldung als invertiert. Bei einer anderen Einheit (etwa mV) braucht die App beide Werte. Bis dahin warnt die Seite Ein-/Ausgänge, und die Iststellung bleibt leer.
+
 ### Handbetrieb
 
 Zum Testen der Klappe und für die Wartung gibt es auf der Startseite die Karte **Handbetrieb**. Dort stellst du die Klappe mit dem Schieber oder mit 0, 50 und 100 % und wählst eine Dauer von 15, 30, 60 oder 120 Minuten. Ist die Zeit um, übernimmt wieder die Automatik und die App meldet das. „Verlängern“ startet die Zeit neu.

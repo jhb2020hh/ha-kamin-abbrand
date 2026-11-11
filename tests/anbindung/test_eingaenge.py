@@ -246,3 +246,24 @@ def test_stellung(eid, wert, attribute, erwartet):
 
 def test_stellung_ohne_zuweisung():
     assert baue().stellung(None) is None
+
+
+def test_klappe_ist_rechnet_volt_und_ma_um_und_laesst_cover_in_ruhe():
+    from anbindung.anlagenprofil import profil_pruefen
+    profil = profil_pruefen({"ofen": "luftgefuehrt", "rueck_zu": 1.87, "rueck_auf": 10.01})
+    vorgabe = profil_pruefen({"ofen": "luftgefuehrt"})
+    eingaenge = Eingaenge(E, "kamin_abbrand", zusatz=("sensor.volt", "sensor.ma", "sensor.prozent", "sensor.mv",
+                                                       "cover.klappe"))
+    eingaenge.aufbauen([zustand("sensor.volt", "5.79", {"unit_of_measurement": "V"}),
+                        zustand("sensor.ma", "12", {"unit_of_measurement": "mA"}),
+                        zustand("sensor.prozent", "40", {"unit_of_measurement": "%"}),
+                        zustand("sensor.mv", "500", {"unit_of_measurement": "mV"}),
+                        zustand("cover.klappe", "open", {"current_position": 70})], JETZT)
+    assert eingaenge.klappe_ist("sensor.volt", profil) == pytest.approx(48.16, abs=0.01)
+    assert eingaenge.klappe_ist("sensor.volt", vorgabe) == pytest.approx(47.375)
+    assert eingaenge.klappe_ist("sensor.ma", vorgabe) == pytest.approx(50.0)
+    assert eingaenge.klappe_ist("sensor.prozent", vorgabe) == pytest.approx(40.0)
+    assert eingaenge.klappe_ist("sensor.mv", vorgabe) is None
+    assert eingaenge.klappe_ist("cover.klappe", profil) == 70
+    assert eingaenge.klappe_ist("sensor.gibt_es_nicht", profil) is None
+    assert eingaenge.klappe_ist(None, profil) is None

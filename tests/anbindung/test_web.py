@@ -101,6 +101,30 @@ def test_profil_lesen_speichern_und_protokollieren():
     mit_web(p)
 
 
+def test_rueckmeldung_in_volt_wird_umgerechnet_und_ist_einstellbar():
+    async def p(ober, _, app, ha, tmp):
+        ha.setzen("sensor.rueck", "5.79", {"unit_of_measurement": "V"})
+        ha.setzen("sensor.rueck_mv", "500", {"unit_of_measurement": "mV"})
+        assert (await ober.post("/api/rollen", json={"rollen": {"abgas": "sensor.a", "klappe_ist": "sensor.rueck"}})).status == 200
+        await warte_auf(lambda: app.eingaenge.zahl("sensor.rueck") == 5.79)
+        d = {x["schluessel"]: x for x in (await (await ober.get("/api/rollen")).json())["rollen"]}
+        assert d["klappe_ist"]["umgerechnet"] == 47 and d["klappe_ist"]["warnung"] is None
+        r = (await (await ober.get("/api/profil")).json())["rueckmeldung"]
+        assert r["einheit"] == "V" and r["vorgabe"] == [2.0, 10.0] and round(r["prozent"]) == 47
+        profil = (await (await ober.get("/api/profil")).json())["profil"] | {"rueck_zu": 1.87, "rueck_auf": 10.01}
+        assert (await ober.post("/api/profil", json=profil)).status == 200
+        r = (await (await ober.get("/api/profil")).json())["rueckmeldung"]
+        assert r["kennlinie"] == [1.87, 10.01] and round(r["prozent"]) == 48
+        schlecht = await ober.post("/api/profil", json=profil | {"rueck_auf": 2.5})
+        assert schlecht.status == 400 and "mindestens 1" in (await schlecht.json())["fehler"]
+        assert (await ober.post("/api/rollen", json={"rollen": {"abgas": "sensor.a", "klappe_ist": "sensor.rueck_mv"}})).status == 200
+        await ober.post("/api/profil", json=profil | {"rueck_zu": None, "rueck_auf": None})
+        await warte_auf(lambda: app.eingaenge.zahl("sensor.rueck_mv") == 500)
+        d = {x["schluessel"]: x for x in (await (await ober.get("/api/rollen")).json())["rollen"]}
+        assert "mV ist unbekannt" in d["klappe_ist"]["warnung"]
+    mit_web(p)
+
+
 def test_wirtschaft_vergleich_je_menge_und_fehlende_angaben():
     async def p(ober, _, app, ha, tmp):
         d = await (await ober.get("/api/wirtschaft")).json()

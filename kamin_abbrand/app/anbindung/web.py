@@ -18,7 +18,8 @@ import aiohttp
 from aiohttp import web
 
 from anbindung.anlagenprofil import (Erzeuger, einheit_normal, fehlende_angaben, feld_passt, ist_fahrenheit,
-                                     katalog, rolle_passt, zaehler_nach_kwh)
+                                     katalog, rolle_passt, rueck_kennlinie, rueck_vorgabe, rueckmeldung_prozent,
+                                     zaehler_nach_kwh)
 from anbindung.benachrichtigung import ARTEN, dienst_gueltig, geraete_aus_diensten, lesbarer_name
 from anbindung.bereitstellung import eigener_host
 from anbindung import ansicht
@@ -39,7 +40,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.3.7"
+VERSION = "0.3.8"
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -229,6 +230,13 @@ class Webserver:
                   "alter_s": _alter(zustand)}
         if zustand.get("state") in ("unavailable", "unknown"):
             daten["warnung"] = "Liefert gerade keinen Wert."
+        elif rolle.schluessel == "klappe_ist" and eid.split(".", 1)[0] not in ("cover", "light"):
+            prozent = rueckmeldung_prozent(als_zahl(zustand.get("state")), einheit, self.app.speicher.anlagenprofil)
+            if prozent is None:
+                daten["warnung"] = (f"Einheit {einheit} ist unbekannt. Bitte unter Anlage eintragen, "
+                                    "welcher Wert zu und welcher auf bedeutet.")
+            elif (einheit or "%").strip() != "%":
+                daten["umgerechnet"] = round(prozent)
         elif rolle.einheiten and not _einheit_erlaubt(einheit, rolle.einheiten):
             daten["warnung"] = f"Einheit ist {einheit or 'nicht angegeben'}, erlaubt sind {', '.join(rolle.einheiten)}."
         elif rolle.einheit and einheit != rolle.einheit and not (rolle.fahrenheit and ist_fahrenheit(einheit)):
@@ -244,6 +252,7 @@ class Webserver:
             "profil": profil.als_dict(),
             "katalog": katalog(),
             "zaehler": [_zaehler_zeigen(e, zustaende, verbunden) for e in profil.erzeuger],
+            "rueckmeldung": _rueckmeldung_zeigen(speicher.rollen.get("klappe_ist"), zustaende, verbunden, profil),
             "hinweise": fehlende_angaben(profil, speicher.rollen),
         })
 
@@ -544,6 +553,19 @@ def _alter(zustand: dict) -> Optional[float]:
 
 def _einheit_erlaubt(einheit: Any, erlaubt: tuple[str, ...]) -> bool:
     return isinstance(einheit, str) and einheit.strip().casefold() in {e.casefold() for e in erlaubt}
+
+
+def _rueckmeldung_zeigen(eid: Optional[str], zustaende: dict, verbunden: bool, profil: Any) -> Optional[dict]:
+    """Rückmeldung der Klappe für die Anlage: Einheit, Vorgabe, Messwert und Umrechnung. None ohne Sensor."""
+    if not eid or eid.split(".", 1)[0] in ("cover", "light"):
+        return None
+    zustand = zustaende.get(eid) if verbunden else None
+    attribute = (zustand or {}).get("attributes") or {}
+    einheit = attribute.get("unit_of_measurement")
+    roh = als_zahl(zustand.get("state")) if zustand else None
+    return {"entitaet": eid, "einheit": einheit, "vorgabe": rueck_vorgabe(einheit), "wert": roh,
+            "kennlinie": rueck_kennlinie(profil, einheit),
+            "prozent": rueckmeldung_prozent(roh, einheit, profil)}
 
 
 def _zaehler_zeigen(erzeuger: Erzeuger, zustaende: dict, verbunden: bool) -> dict:

@@ -157,7 +157,7 @@ class App:
         self.ausgaenge = Ausgaenge(
             lambda *a: self.client.schalte(*a),
             lambda: self.speicher.rollen if self.speicher else {},
-            self.eingaenge.stellung, self._kennlinie, self._attribute, self._ausgang_stoerung, uhr)
+            self.klappe_ist_prozent, self._kennlinie, self._attribute, self._ausgang_stoerung, uhr)
         self._karenz_s = karenz_s
         self._betrieb = False
         self._anlaufschutz = False
@@ -267,6 +267,12 @@ class App:
     @property
     def _zustand_pfad(self) -> Path:
         return self.speicher.pfad.parent / "betrieb_zustand.json"
+
+    def klappe_ist_prozent(self, eid: Optional[str]) -> Optional[float]:
+        """Iststellung in %, Volt oder mA nach der Rückmelde-Kennlinie im Anlagenprofil umgerechnet."""
+        if self.speicher is None:
+            return self.eingaenge.stellung(eid)
+        return self.eingaenge.klappe_ist(eid, self.speicher.anlagenprofil)
 
     def _kennlinie(self) -> tuple[bool, float]:
         """Wie die Stellung am Ausgang anliegt. Gibt es die Helfer der Automation, gelten deren Werte."""
@@ -762,7 +768,7 @@ class App:
         rollen = self.speicher.rollen
         parameter = self.parameter_neu if self._betrieb else self.eingaenge.parameter
         return {"druck": self.eingaenge.zahl(rollen.get("druck")),
-                "klappe_ist": self.eingaenge.stellung(rollen.get("klappe_ist")),
+                "klappe_ist": self.klappe_ist_prozent(rollen.get("klappe_ist")),
                 "ziel": parameter.t_ziel,
                 "leistung_kw": self._leistung_kw()}
 

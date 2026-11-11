@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.8
+
+- Behoben: Eine Klappenrückmeldung in Volt wurde als Prozent gelesen (5,8 V ergaben „Iststellung 6 %“). Im Betrieb hätte das nach zwei Minuten „Klappe folgt nicht“ ausgelöst.
+- Neu: Die Rückmeldung darf in %, V oder mA kommen. Unter Anlage lässt sich einstellen, welcher Wert „zu“ und welcher „auf“ bedeutet. Ohne Eintrag gelten 2–10 V bzw. 4–20 mA. Ein-/Ausgänge zeigt den umgerechneten Wert mit an.
+
 ## 0.3.7
 
 - Startseite neu geordnet: Die Leistung (Eco/Normal/Power) steht direkt unter den Hinweisen, der Handbetrieb ganz unten.
