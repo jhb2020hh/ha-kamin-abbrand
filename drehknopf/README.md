@@ -8,7 +8,7 @@ Der Kamin ist der Ausgangspunkt, aber nicht die Grenze. Die Anzeige besteht aus 
 
 | Kamin | Kamin gedimmt | Musik | Aus |
 | --- | --- | --- | --- |
-| ![Kamin-Seite: Phase Abbrand, 287 °C, Ziel und Klappe, Leistungsknöpfe](../docs/screenshots/drehknopf-kamin.png) | ![Gedimmte Kamin-Seite bei laufendem Feuer](../docs/screenshots/drehknopf-kamin-gedimmt.png) | ![Musik-Seite: Titel, Künstler, Lautstärke, Zurück/Pause/Weiter](../docs/screenshots/drehknopf-musik.png) | ![Display aus](../docs/screenshots/drehknopf-aus.png) |
+| ![Kamin-Seite: äußerer Ring Abgastemperatur in Phasenfarbe, innerer Ring Klappe, Phase Abbrand, 287 °C, Leistungsknöpfe, Legende](../docs/screenshots/drehknopf-kamin.png) | ![Gedimmte Kamin-Seite bei laufendem Feuer](../docs/screenshots/drehknopf-kamin-gedimmt.png) | ![Musik-Seite: Titel, Künstler, Lautstärke, Zurück/Pause/Weiter](../docs/screenshots/drehknopf-musik.png) | ![Display aus](../docs/screenshots/drehknopf-aus.png) |
 
 Die Bilder sind Wireframes mit Beispielwerten, keine Fotos vom Gerät.
 

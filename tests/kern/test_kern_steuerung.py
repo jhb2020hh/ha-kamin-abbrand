@@ -33,7 +33,7 @@ def test_ergebnis_ist_momentaufnahme_und_zustand_bleibt_dasselbe_objekt():
 
 
 def test_phase_setzen_stempelt_int_sekunden_und_begrenzt_auf_1200():
-    st, _ = lauf(STANDBY, 100, t=1638.0)
+    st, _ = lauf(STANDBY, 100, dict(t_phasenstart=1500.0), t=1638.0)
     z = st.zustand
     assert z.phase == ANHEIZEN and z.phase_seit == JETZT_INT
     assert z.t_maximum == 1200 and z.t_phasenstart == 1200
@@ -46,8 +46,10 @@ def test_phase_setzen_ohne_messwert_schreibt_null():
     assert erg.klappe == 100    # kein stop: Die Klappe öffnet noch im selben Lauf
 
 
-@pytest.mark.parametrize("t,t_vorher,erwartet", [(150.0, 200.0, 200.0), (250.0, 200.0, 250.0)])
-def test_tuer_zu_merkt_den_hoeheren_wert(t, t_vorher, erwartet):
+@pytest.mark.parametrize("t,t_vorher,erwartet", [(150.0, 200.0, 200.0), (250.0, 200.0, 200.0),
+                                                  (209.0, 24.7, 24.7)])
+def test_tuer_zu_uebernimmt_t_vor_dem_oeffnen(t, t_vorher, erwartet):
+    # 11.11.: Kaltstart, Tür 17 min offen, beim Schließen 209 °C – bleibt Kaltstart
     st, _ = lauf(TUER_OFFEN, 30, dict(t_phasenstart=t_vorher), t=t)
     assert st.zustand.t_phasenstart == erwartet
 
@@ -58,14 +60,14 @@ def test_tuer_auf_merkt_den_hoeheren_wert_nicht():
 
 
 def test_i_start_liest_t_vorher_nicht_das_neue_t_phasenstart():
-    st, _ = lauf(ANHEIZEN, 900, dict(t_phasenstart=65.0, i_anteil=99.0, t_maximum=160.0), t=170.0)
+    st, _ = lauf(ANHEIZEN, 2400, dict(t_phasenstart=65.0, i_anteil=99.0, t_maximum=160.0), t=170.0)
     assert st.zustand.phase == ABBRAND and st.zustand.t_phasenstart == 170.0
     assert st.zustand.i_anteil < 99.0
 
 
 def test_uebergang_nach_abbrand_integriert_und_stellt_klappe_im_selben_lauf():
     # I-Start 55.0, sp = 0.5 < Entgasung; Integration: e = 50 → +1.8; P: 25
-    st, erg = lauf(ANHEIZEN, 900, dict(t_phasenstart=65.0, t_maximum=160.0, klappe_soll=100),
+    st, erg = lauf(ANHEIZEN, 2400, dict(t_phasenstart=65.0, t_maximum=160.0, klappe_soll=100),
                    t=170.0)
     assert st.zustand.i_anteil == 56.8
     assert erg.klappe == 90     # 81.8, aber Schließrate 100 - 10
@@ -73,7 +75,7 @@ def test_uebergang_nach_abbrand_integriert_und_stellt_klappe_im_selben_lauf():
 
 
 def test_uebergang_nach_abbrand_ohne_tick_integriert_nicht():
-    st, _ = lauf(ANHEIZEN, 900, dict(t_phasenstart=65.0, t_maximum=160.0), t=170.0,
+    st, _ = lauf(ANHEIZEN, 2400, dict(t_phasenstart=65.0, t_maximum=160.0), t=170.0,
                  ausloeser="bedienung")
     assert st.zustand.i_anteil == 55.0
 
@@ -129,7 +131,7 @@ def test_wasserbegrenzung_nutzt_alte_variable_tmax():
     st, _ = lauf(ABBRAND, 1000, dict(t_maximum=200.5), t=200.0, twt_roh=90.0)
     assert st.zustand.t_maximum == 200.5
     # Im Übergangslauf ist tmax alt, das Schreiben ändert nichts mehr: frisch ist schon t
-    st, _ = lauf(ANHEIZEN, 900, dict(t_maximum=500.0, t_phasenstart=20.0), t=170.0, twt_roh=90.0)
+    st, _ = lauf(ANHEIZEN, 2400, dict(t_maximum=500.0, t_phasenstart=20.0), t=170.0, twt_roh=90.0)
     assert st.zustand.phase == ABBRAND and st.zustand.t_maximum == 170.0
 
 
@@ -186,3 +188,21 @@ def test_jetzt_mit_nachkommastelle_gibt_sp_aber_ganzes_s():
     # s = 59, sp = 59.5 → noch Spülen; bei 60.0 nicht mehr
     assert st.schritt(eingaben(t=90.0, jetzt=JETZT)).klappe == 100
     assert st.schritt(eingaben(t=90.0, jetzt=JETZT + 0.5)).klappe == 10
+
+
+def test_tuer_auf_im_anheizen_behaelt_den_startfall():
+    st, _ = lauf(ANHEIZEN, 300, dict(t_phasenstart=25.0, t_maximum=180.0), t=180.0, tuer_offen=True)
+    assert st.zustand.phase == TUER_OFFEN and st.zustand.t_phasenstart == 25.0
+
+
+def test_standby_nach_anheizen_nimmt_den_kleineren_wert():
+    st, _ = lauf(STANDBY, 100, dict(t_phasenstart=40.0), t=135.0)
+    assert st.zustand.phase == ANHEIZEN and st.zustand.t_phasenstart == 40.0
+
+
+@pytest.mark.parametrize("t,ziel", [(219.0, ANHEIZEN), (220.0, ABBRAND)])
+def test_kaltstart_haelt_anheizen_bis_t_kaltstart_ende(t, ziel):
+    st, erg = lauf(ANHEIZEN, 900, dict(t_phasenstart=25.0, t_maximum=t), t=t)
+    assert st.zustand.phase == ziel
+    if ziel == ANHEIZEN:
+        assert erg.klappe == 100

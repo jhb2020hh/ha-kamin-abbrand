@@ -142,6 +142,8 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
         _f("anheizen_mindestdauer_nachlegen", "Mindestdauer beim Nachlegen", "Für das Nachlegen auf Glut.", 0, 30, 1, "min"),
         _f("anheizen_mindestdauer_feuer", "Mindestdauer auf heißem Feuer", "Für das Nachlegen, solange der Ofen noch heiß ist.", 0, 30, 1, "min"),
         _f("anheizen_timeout", "Höchstdauer Anheizen", "Danach meldet die App einen Anheizfehler.", 5, 120, 5, "min"),
+        _f("klappe_kaltstart", "Klappe beim Kaltstart", "Klappenstellung beim ersten Anheizen (kalter Ofen, keine Glut).", 30, 100, 5, "%"),
+        _f("t_kaltstart_ende", "Kaltstart offen bis", "Beim Kaltstart bleibt die Klappe bis zu dieser Abgastemperatur auf dem Kaltstart-Wert, erst dann beginnt der Abbrand.", 150, 300, 5, "°C"),
         _f("klappe_anheizen_feuer", "Klappe beim Nachlegen", "Klappenstellung, wenn auf einen heißen Ofen nachgelegt wird.", 20, 100, 5, "%"),
         _f("t_kalt", "Ofen gilt als kalt unter", "Darunter darf die Klappe ganz schließen.", 20, 100, 5, "°C"),
     )),

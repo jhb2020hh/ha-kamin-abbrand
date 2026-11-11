@@ -193,3 +193,9 @@ def test_schreiben_nur_bei_anderem_int_wert():
     assert st.zustand.klappe_soll == 10.7 and erg.klappe == 10
     st, erg = lauf(GLUT, 0, dict(klappe_soll=11.2), t=100.0)
     assert st.zustand.klappe_soll == 10 and erg.klappe == 10
+
+
+@pytest.mark.parametrize("tref,t,klappe", [(25.0, 209.0, 85), (79.9, 100.0, 85), (80.0, 150.0, 100)])
+def test_kaltstart_nutzt_klappe_kaltstart(tref, t, klappe):
+    p = Parameter(klappe_kaltstart=85)
+    assert klappe_nach(ANHEIZEN, 10, dict(t_phasenstart=tref, t_maximum=t), p, t=t) == klappe

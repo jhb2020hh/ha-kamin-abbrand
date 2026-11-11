@@ -60,8 +60,13 @@ def phase_setzen(lauf: Lauf, phase: str) -> None:
     # Live schreibt ohne Messwert 0 und verliert damit die Herkunftstemperatur.
     if not (lauf.neu and not lauf.w.t_ok):
         z.t_maximum = t_jetzt
-        z.t_phasenstart = (max(t_jetzt, t_vorher)
-                           if alt == TUER_OFFEN and phase == ANHEIZEN else t_jetzt)
+        # Türöffnen ist kein Nachlegen: Startfall = T vor dem ersten Öffnen.
+        if (alt, phase) in ((TUER_OFFEN, ANHEIZEN), (ANHEIZEN, TUER_OFFEN)):
+            z.t_phasenstart = t_vorher
+        elif alt == STANDBY and phase == ANHEIZEN:
+            z.t_phasenstart = min(t_jetzt, t_vorher)
+        else:
+            z.t_phasenstart = t_jetzt
     if phase == ABBRAND and alt != ABBRAND:
         z.i_anteil = i_start(t_vorher, lauf.p)
     lauf.uebergang = (alt, phase)
@@ -256,7 +261,10 @@ REGELN_PARITAET: tuple[Regel, ...] = (
     Regel("Anheizen → Abbrand",
           lambda l: (_in(l, ANHEIZEN) and l.w.t >= l.w.tstart
                      and (l.w.s >= l.w.anh_min_eff
-                          or (l.w.t >= l.w.ziel and l.w.s >= l.w.ziel_min_s))),
+                          or (l.w.t >= l.w.ziel and l.w.s >= l.w.ziel_min_s))
+                     # Kaltstart hält Anheizen bis T Kaltstart-Ende, Notbremse Timeout
+                     and (l.w.tref >= l.w.abk or l.w.t >= l.w.t_kalt_ende
+                          or l.w.s >= l.w.anh_to)),
           _nach(ABBRAND)),
     Regel("Anheizen ohne echtes Feuer (Tür nur geöffnet / Glut nur aufgeflammt / nur gereinigt)"
           " → still zurück, kalter Ofen direkt Standby",

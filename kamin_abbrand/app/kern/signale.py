@@ -146,6 +146,8 @@ class Werte:
     twt_anstieg: float
     feuer_anstieg: float
     kfeuer: float
+    kkalt: float
+    t_kalt_ende: float
 
 
 def werte_ermitteln(e: Eingaben, p: Parameter, z: Zustand) -> Werte:
@@ -199,4 +201,6 @@ def werte_ermitteln(e: Eingaben, p: Parameter, z: Zustand) -> Werte:
         twt_anstieg=e.twt_anstieg,
         feuer_anstieg=p.feuer_twt_anstieg,
         kfeuer=p.klappe_anheizen_feuer,
+        kkalt=p.klappe_kaltstart,
+        t_kalt_ende=p.t_kaltstart_ende,
     )

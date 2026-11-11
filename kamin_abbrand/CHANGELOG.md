@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.5
+
+- Behoben: Ein Kaltstart wurde als heißes Nachlegen gewertet, wenn das Feuer bei offener Tür schon hochgebrannt war, und die Klappe ging auf „Klappe beim Nachlegen“. Für den Startfall zählt jetzt die Temperatur von vor dem ersten Öffnen. Öffnet man die Tür im Anheizen erneut, bleibt der Startfall erhalten.
+- Neu: Beim Kaltstart (keine Glut vor dem Anheizen) steht die Klappe auf „Klappe beim Kaltstart“ (100 %). Der Abbrand beginnt erst ab „Kaltstart offen bis“ (220 °C) oder nach der Höchstdauer Anheizen. Beide Werte sind unter Einstellungen → Anheizen einstellbar.
+
 ## 0.3.4
 
 - Behoben: Lag die Seite länger im Hintergrund, zeigte sie „Fehler 401“, bis man von Hand neu lud. Die abgelaufene Anmeldung bei Home Assistant wird jetzt erkannt und die Seite einmal neu geladen. Im Hintergrund fragt die Seite nicht mehr ab.

@@ -78,6 +78,8 @@ class Parameter:
     klappe_uebertemperatur: float = 25
     klappe_wasser: float = 40
     klappe_anheizen_feuer: float = 60
+    klappe_kaltstart: float = 100
+    t_kaltstart_ende: float = 220       # °C
     regler_verstaerkung: float = 0.5
     regler_nachstellzeit: float = 7     # min
     regler_vorhaltung: float = 0

@@ -13,6 +13,8 @@ from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GL
 
 def _anheizen(z: Zustand, w: Werte) -> float:
     tr = z.t_phasenstart
+    if tr < w.abk:                      # Kaltstart: keine Glut vor dem Anheizen
+        return w.kkalt
     if tr < w.glut or w.t < w.glut:
         return 100
     if tr >= w.tstart:

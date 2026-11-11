@@ -13,6 +13,11 @@
 #   Touch                         : Leistungsmodus bzw. Zurück/Play/Weiter
 #   Erster Kontakt (Touch, Drehen, Taster) weckt nur, löst nichts aus.
 #
+# Kamin-Seite
+#   Äußerer Ring  : Abgastemperatur, Farbe = aktuelle Phase
+#   Innerer Ring  : Klappenstellung (Ist), türkis
+#   Legende unten : ● <Phase>  ● Klappe
+#
 # Anzeige / Einbrennschutz (AMOLED)
 #   - Nach "Anzeige Timeout" ohne Bedienung:
 #       Feuer aktiv + "Anzeige bei Feuer" an -> Kamin-Seite gedimmt,
@@ -40,6 +45,7 @@ substitutions:
   e_modus: input_select.kamin_abbrand_leistungsmodus
   e_feuer: binary_sensor.kamin_feuer_aktiv
   t_skala_max: "350"          # Vollausschlag des Temperaturbogens in °C
+  farbe_klappe: "0x1DE9B6"    # innerer Ring + Legende (keine Phase nutzt Türkis)
 
   # --- Musik: aktive Zone wird in HA bestimmt ---
   # input_select.drehknopf_zone folgt der Wiedergabe (automation.drehknopf_zone_folgt_der_wiedergabe),
@@ -265,6 +271,8 @@ sensor:
     id: ha_klappe
     entity_id: ${e_klappe_ist}
     on_value:
+      - lambda: |-
+          lv_arc_set_value(id(arc_klappe), std::isnan(x) ? 0 : (int16_t) std::max(0.0f, std::min(x, 100.0f)));
       - script.execute: info_zeile
   - platform: homeassistant
     id: ha_volume
@@ -304,6 +312,9 @@ text_sensor:
           lv_label_set_text(id(lbl_phase), x.c_str());
           lv_obj_set_style_text_color(id(lbl_phase), lv_color_hex(c), 0);
           lv_obj_set_style_arc_color(id(arc_t), lv_color_hex(c), LV_PART_INDICATOR);
+          // Legende: Punkt + Begriff in der aktuellen Farbe des äußeren Rings
+          lv_obj_set_style_bg_color(id(leg_punkt_phase), lv_color_hex(c), 0);
+          lv_label_set_text(id(lbl_leg_phase), x.c_str());
   - platform: homeassistant
     id: ha_modus
     entity_id: ${e_modus}
@@ -611,6 +622,15 @@ font:
     glyphsets: [GF_Latin_Core]
     glyphs: "·…–"
     ignore_missing_glyphs: true
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: f_mini
+    size: 18
+    glyphsets: [GF_Latin_Core]
+    glyphs: "·…–"
+    ignore_missing_glyphs: true
 
 # ===========================================================================
 #  OBERFLÄCHE (LVGL)
@@ -682,9 +702,32 @@ lvgl:
             knob:
               bg_opa: TRANSP
               pad_all: 0
+        # Innerer Ring: Klappenstellung (Ist) 0..100 %. Nur 240° statt 270°,
+        # damit die Enden über den Leistungsknöpfen liegen und nicht darunter.
+        - arc:
+            id: arc_klappe
+            align: CENTER
+            width: 384
+            height: 384
+            rotation: 150
+            start_angle: 0
+            end_angle: 240
+            min_value: 0
+            max_value: 100
+            value: 0
+            adjustable: false
+            clickable: false
+            arc_width: 10
+            arc_color: 0x262626
+            indicator:
+              arc_width: 10
+              arc_color: ${farbe_klappe}
+            knob:
+              bg_opa: TRANSP
+              pad_all: 0
         - label:
             align: CENTER
-            y: -160
+            y: -150
             text: "Kamin"
             text_color: 0x8A8A8A
         - label:
@@ -702,7 +745,7 @@ lvgl:
         - label:
             id: lbl_info
             align: CENTER
-            y: 50
+            y: 40
             text: "Ziel --  ·  Klappe --"
             text_color: 0xBDBDBD
         - button:
@@ -710,7 +753,7 @@ lvgl:
             styles: st_knopf
             align: CENTER
             x: -92
-            y: 142
+            y: 128
             width: 84
             height: 52
             checked:
@@ -729,7 +772,7 @@ lvgl:
             styles: st_knopf
             align: CENTER
             x: 0
-            y: 142
+            y: 128
             width: 84
             height: 52
             checked:
@@ -749,7 +792,7 @@ lvgl:
             styles: st_knopf
             align: CENTER
             x: 92
-            y: 142
+            y: 128
             width: 84
             height: 52
             checked:
@@ -763,6 +806,58 @@ lvgl:
               - script.execute:
                   id: modus_setzen
                   modus: "Power"
+        # Legende ganz unten: Punkt + Begriff je Ring.
+        # Eintrag 1 folgt der Phase (gleiche Farbe wie der äußere Ring).
+        - obj:
+            id: legende
+            align: CENTER
+            y: 184
+            width: SIZE_CONTENT
+            height: SIZE_CONTENT
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            clickable: false
+            scrollbar_mode: "OFF"
+            layout:
+              type: flex
+              flex_flow: ROW
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_column: 6
+            widgets:
+              - obj:
+                  id: leg_punkt_phase
+                  width: 10
+                  height: 10
+                  radius: 5
+                  bg_color: 0x9E9E9E
+                  bg_opa: COVER
+                  border_width: 0
+                  clickable: false
+              - label:
+                  id: lbl_leg_phase
+                  text: "--"
+                  text_font: f_mini
+                  text_color: 0xBDBDBD
+              - obj:                    # Abstand zwischen den Einträgen
+                  width: 8
+                  height: 1
+                  bg_opa: TRANSP
+                  border_width: 0
+                  clickable: false
+              - obj:
+                  width: 10
+                  height: 10
+                  radius: 5
+                  bg_color: ${farbe_klappe}
+                  bg_opa: COVER
+                  border_width: 0
+                  clickable: false
+              - label:
+                  text: "Klappe"
+                  text_font: f_mini
+                  text_color: 0xBDBDBD
 
     # ---------------------------------------------------------------- MUSIK
     - id: page_musik
