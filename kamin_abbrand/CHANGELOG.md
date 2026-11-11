@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7
+
+- Startseite neu geordnet: Die Leistung (Eco/Normal/Power) steht direkt unter den Hinweisen, der Handbetrieb ganz unten.
+
 ## 0.3.6
 
 - Neu: Handbetrieb für Klappentest und Wartung direkt in der App, als Karte auf der Startseite. Wählbar sind Klappenstellung (Schieber oder 0/50/100 %) und Dauer (15, 30, 60 oder 120 min). Danach übernimmt die Automatik von selbst. Die Begrenzung bei Übertemperatur bleibt aktiv.

@@ -196,7 +196,7 @@ function startZeichnen(s) {
     h("div", { klasse: "band" }, s.phasenband.map((p) => h("span", { klasse: p === s.phase ? "aktiv" : "" }, p))));
 
   const app = s.app.neu;
-  const unten = h("div", { klasse: "karte" }, h("div", { klasse: "zeile" },
+  const leistungKarte = h("div", { klasse: "karte" }, h("div", { klasse: "zeile" },
     h("div", {}, h("div", { klasse: "etikett" }, "Leistung"),
       h("div", { klasse: "modus", role: "group", "aria-label": "Leistung" }, ["Eco", "Normal", "Power"].map((m) => h("button", { type: "button", "aria-pressed": String(m === s.leistung), onclick: () => leistungWaehlen(m) }, m))),
       h("div", { klasse: "leise", stil: "margin-top:4px" }, `Ziel ${zahl(s.ziel)} °C`, s.leistung_eigen && s.leistung_live && s.leistung_live !== s.leistung ? ` · Automation läuft auf ${s.leistung_live}` : "", s.modus !== "betrieb" ? " · wirkt im Lauschen nicht auf den Ofen" : "")),
@@ -231,7 +231,7 @@ function startZeichnen(s) {
   const einrichtung = s.einrichtung.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Einrichtung noch nicht fertig"),
     h("p", { klasse: "leise" }, `${s.einrichtung.length === 1 ? "Eine Angabe fehlt" : `${s.einrichtung.length} Angaben fehlen`} noch. Ofenart, Puffer und Wärmeerzeuger stehen unter Anlage, die Sensoren unter Ein-/Ausgänge.`),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "textknopf", onclick: () => gehe("anlage") }, "Zur Anlage"), " ", h("button", { klasse: "textknopf", onclick: () => gehe("eingaenge") }, "Zu den Ein-/Ausgängen")));
-  zeige(...[fehlt, einrichtung, klappeWarnung, wasser, reinigung, betriebKarte(s), handKarte(s), karte, werte, dauerKarte, band, unten].filter(Boolean));
+  zeige(...[fehlt, einrichtung, klappeWarnung, wasser, reinigung, leistungKarte, betriebKarte(s), karte, werte, dauerKarte, band, handKarte(s)].filter(Boolean));
 }
 
 // ---- Verlauf -----------------------------------------------------------
