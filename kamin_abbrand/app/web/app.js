@@ -104,6 +104,47 @@ function betriebKarte(s) {
     frageBetrieb, frageLauschen);
 }
 
+
+// ---- Handbetrieb (Test und Wartung) ----------------------------------
+let handEntwurf = null;   // Schieberwert, solange er noch nicht gesendet ist
+let handDauer = null;     // gewählte Dauer vor dem Einschalten
+async function handSenden(daten, text) {
+  try { await api("api/hand", daten); if (text) toast(text); } catch (f) { melden(f); }
+  handEntwurf = null; handDauer = null; aktualisieren();
+}
+function handKarte(s) {
+  const d = s.hand;
+  if (!d || !d.motorisiert) return null;
+  const klappe = handEntwurf ?? d.klappe;
+  const gesperrt = !d.moeglich;
+  const gewaehlt = handDauer ?? d.dauer_min;
+  const dauerKnopf = (m) => h("button", { type: "button", "aria-pressed": String(gewaehlt === m), disabled: gesperrt,
+    onclick: () => { handDauer = m; if (d.aktiv) handSenden({ an: true, dauer_min: m }, `Handbetrieb läuft jetzt ${m} min`); else aktualisieren(); } }, `${m} min`);
+  const schnell = (w) => h("button", { type: "button", klasse: "neben", disabled: gesperrt,
+    onclick: () => handSenden({ an: d.aktiv, klappe: w }, `Klappe im Handbetrieb ${w} %`) }, `${w} %`);
+  const anzeige = h("b", {}, `${zahl(klappe)} %`);
+  return h("div", { klasse: "karte hand", stil: d.aktiv ? "--farbe:var(--wartung)" : null },
+    h("div", { klasse: "betrieb-kopf" },
+      h("div", {}, h("h2", {}, "Handbetrieb"),
+        h("div", { klasse: "leise" }, d.aktiv ? `Klappe steht von Hand auf ${zahl(d.klappe)} %, noch ${dauer(d.rest_s)}.` : "Für Klappentest und Wartung. Endet von selbst.")),
+      h("div", { klasse: "umschalter", role: "group", "aria-label": "Handbetrieb" },
+        h("button", { type: "button", "aria-pressed": String(!d.aktiv), onclick: () => d.aktiv && handSenden({ an: false }, "Handbetrieb aus, die Automatik übernimmt.") }, "Automatik"),
+        h("button", { type: "button", "aria-pressed": String(d.aktiv), disabled: gesperrt, onclick: () => !d.aktiv && handSenden({ an: true, dauer_min: gewaehlt, klappe }, `Handbetrieb an für ${gewaehlt} min`) }, "Hand"))),
+    gesperrt && h("p", { klasse: "leise", stil: "margin-top:8px" }, d.grund),
+    d.ha_an && h("p", { klasse: "leise", stil: "margin-top:8px" }, "Der Handbetrieb in Home Assistant ist eingeschaltet."),
+    h("div", { klasse: "hand-zeile" },
+      h("span", { klasse: "etikett" }, "Klappe"),
+      h("input", { type: "range", min: 0, max: 100, step: 5, value: klappe, disabled: gesperrt, "aria-label": "Klappe im Handbetrieb in Prozent",
+        oninput: (e) => { handEntwurf = +e.target.value; anzeige.textContent = `${handEntwurf} %`; },
+        onchange: (e) => handSenden({ an: d.aktiv, klappe: +e.target.value }, `Klappe ${e.target.value} %`) }),
+      anzeige),
+    h("div", { klasse: "hand-zeile" }, [0, 50, 100].map(schnell)),
+    h("div", { klasse: "hand-zeile" },
+      h("span", { klasse: "etikett" }, "Dauer"),
+      h("div", { klasse: "umschalter", role: "group", "aria-label": "Dauer des Handbetriebs" }, d.dauern_min.map(dauerKnopf)),
+      d.aktiv && h("button", { type: "button", klasse: "neben", onclick: () => handSenden({ an: true }, `Handbetrieb läuft wieder ${d.dauer_min} min`) }, "Verlängern")));
+}
+
 // ---- Start -------------------------------------------------------------
 let infoOffen = false;
 function wertKarte(titel, gross, einheit, zusatz, balken) {
@@ -129,7 +170,7 @@ function startZeichnen(s) {
 
   const werte = h("div", { klasse: "raster" },
     wertKarte("Abgastemperatur", zahl(s.abgas), "°C", `Ziel ${zahl(s.ziel)} °C`, s.abgas !== null ? s.abgas / Math.max(s.ziel * 1.4, 1) * 100 : 0),
-    wertKarte("Klappe", zahl(s.klappe_soll), "%", s.klappe_ist !== null ? `Iststellung ${zahl(s.klappe_ist)} %` : "Sollstellung", s.klappe_soll),
+    wertKarte("Klappe", zahl(s.klappe_soll), "%", (s.hand && s.hand.aktiv ? "Handbetrieb · " : "") + (s.klappe_ist !== null ? `Iststellung ${zahl(s.klappe_ist)} %` : "Sollstellung"), s.klappe_soll),
     s.zug !== null && wertKarte("Kaminzug", zahl(s.zug, 1), "Pa"),
     s.twt !== null && wertKarte("Wärmetauscher", zahl(s.twt, 1), "°C"),
     s.puffer_unten !== null && wertKarte("Puffer unten", zahl(s.puffer_unten, 1), "°C"),
@@ -190,7 +231,7 @@ function startZeichnen(s) {
   const einrichtung = s.einrichtung.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Einrichtung noch nicht fertig"),
     h("p", { klasse: "leise" }, `${s.einrichtung.length === 1 ? "Eine Angabe fehlt" : `${s.einrichtung.length} Angaben fehlen`} noch. Ofenart, Puffer und Wärmeerzeuger stehen unter Anlage, die Sensoren unter Ein-/Ausgänge.`),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "textknopf", onclick: () => gehe("anlage") }, "Zur Anlage"), " ", h("button", { klasse: "textknopf", onclick: () => gehe("eingaenge") }, "Zu den Ein-/Ausgängen")));
-  zeige(...[fehlt, einrichtung, klappeWarnung, wasser, reinigung, betriebKarte(s), karte, werte, dauerKarte, band, unten].filter(Boolean));
+  zeige(...[fehlt, einrichtung, klappeWarnung, wasser, reinigung, betriebKarte(s), handKarte(s), karte, werte, dauerKarte, band, unten].filter(Boolean));
 }
 
 // ---- Verlauf -----------------------------------------------------------

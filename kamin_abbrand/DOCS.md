@@ -29,6 +29,12 @@ Im Betrieb führt der Regelstand `neu`. Rollen und Anlage lassen sich dann nicht
 
 **Sicherer Zustand ist Klappe 100 % offen.** Dorthin fährt die App beim Zurückschalten auf Lauschen, beim Beenden, bei einem Fehler im Rechenkern und wenn eine Bedingung im Lauf wegfällt. In den letzten beiden Fällen fällt sie außerdem auf Lauschen zurück und meldet das. Kurze Ausfälle von Fühler, Klappe oder Verbindung überbrückt sie 30 Sekunden. Solange die App ein heißes Feuer nicht einordnen kann, bleibt die Klappe offen. Ist die Verbindung zu Home Assistant weg, kann die App nichts mehr schalten; dafür ist der Watchdog da. Fahre den ersten Abbrand im Betrieb unter Aufsicht.
 
+### Handbetrieb
+
+Zum Testen der Klappe und für die Wartung gibt es auf der Startseite die Karte **Handbetrieb**. Dort stellst du die Klappe mit dem Schieber oder mit 0, 50 und 100 % und wählst eine Dauer von 15, 30, 60 oder 120 Minuten. Ist die Zeit um, übernimmt wieder die Automatik und die App meldet das. „Verlängern“ startet die Zeit neu.
+
+Der Handbetrieb wirkt nur im **Betrieb**. Im Lauschen stellt deine Automation die Klappe, nutze dort deren Handbetrieb. Beim Wechsel auf Lauschen und bei einem Rückfall endet der Handbetrieb. Die Begrenzung bei Übertemperatur bleibt auch im Handbetrieb aktiv. Der Schalter „Handbetrieb“ der Integration schaltet denselben Handbetrieb.
+
 ## Voraussetzungen
 
 - Home Assistant mit Supervisor, also Home Assistant OS oder Supervised.

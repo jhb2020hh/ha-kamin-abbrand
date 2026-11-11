@@ -346,6 +346,7 @@ class App:
             return
         if self._oeffnen_bis is not None:
             await self._oeffnen_nachholen(self._uhr())
+        self._hand_pruefen(self._uhr())
         if ausloeser == TICK and PARITAET in regelstaende:
             await self._abgleichen()
 
@@ -361,6 +362,8 @@ class App:
                 eingaben = dataclasses.replace(
                     eingaben, tuerkontakt_vorhanden=vorhanden,
                     tuer_offen=eingaben.tuer_offen if vorhanden else False,
+                    # Handbetrieb der App wirkt nur hier (Regelstand neu, nur im Betrieb).
+                    handbetrieb=eingaben.handbetrieb or self.hand_aktiv(jetzt),
                 )
             try:
                 ergebnis = steuerung.schritt(eingaben)
@@ -489,6 +492,7 @@ class App:
         """Klappe 100 %, Modus Lauschen. Reicht der Versuch nicht, bleibt nur der Weg zur Klappe offen."""
         jetzt = self._uhr()
         self._betrieb = False
+        self._hand_aus(jetzt, "Handbetrieb beendet, weil die App auf Lauschen geht.")
         self._anlaufschutz = False
         self._weg_seit.clear()
         self._getrennt_seit = None
@@ -505,6 +509,51 @@ class App:
             self.client.betrieb_freigeben([klappe])
             self._oeffnen_bis = jetzt + RUECKFALL_OEFFNEN_S
         return offen
+
+    # ---- Handbetrieb -------------------------------------------------
+
+    def hand_aktiv(self, jetzt: float) -> bool:
+        """Handbetrieb der App: nur im Betrieb und bis zur gespeicherten Endzeit."""
+        return bool(self._betrieb and self.speicher is not None and self.speicher.hand_aktiv(jetzt))
+
+    def hand_setzen(self, an: bool, dauer_min: Optional[float] = None) -> Optional[float]:
+        """Startet, verlängert oder beendet den Handbetrieb. Rückgabe: Endzeit oder None."""
+        jetzt = self._uhr()
+        if not an:
+            self._hand_aus(jetzt, "Handbetrieb beendet, die Automatik übernimmt.")
+            return None
+        if not self._betrieb:
+            raise EinstellungsFehler("Handbetrieb geht nur im Betrieb.")
+        war = self.speicher.hand_aktiv(jetzt)
+        bis = self.speicher.hand_starten(jetzt, dauer_min)
+        klappe = self.parameter_neu.klappe_manuell
+        if not war:
+            self.verlauf.aenderung(jetzt, "handbetrieb", False, True)
+        self.meldungen.appendleft({"zeit": jetzt, "text": f"Handbetrieb {'verlängert' if war else 'an'}: "
+                                                          f"Klappe {klappe:.0f} % für "
+                                                          f"{self.speicher.hand_dauer_min:.0f} min."})
+        return bis
+
+    def _hand_aus(self, jetzt: float, text: str) -> None:
+        if self.speicher is None or self.speicher.hand_bis is None:
+            return
+        try:
+            self.speicher.hand_beenden()
+        except EinstellungsFehler:
+            log.error("Ende des Handbetriebs nicht gespeichert")
+        self.verlauf.aenderung(jetzt, "handbetrieb", True, False)
+        self.meldungen.appendleft({"zeit": jetzt, "text": text})
+
+    def _hand_pruefen(self, jetzt: float) -> None:
+        """Endet nach Ablauf von selbst. Steht nach einem Neustart im Lauschen noch einer, gilt er nicht mehr."""
+        if self.speicher is None or self.speicher.hand_bis is None:
+            return
+        if not self._betrieb:
+            self._hand_aus(jetzt, "Handbetrieb beendet, weil die App im Lauschen ist.")
+        elif not self.speicher.hand_aktiv(jetzt):
+            text = f"Handbetrieb nach {self.speicher.hand_dauer_min:.0f} min beendet, die Automatik übernimmt."
+            self._hand_aus(jetzt, text)
+            self.benachrichtiger.melden("betrieb", text)
 
     async def _zurueckfallen(self, grund: str) -> None:
         log.error("Rückfall auf Lauschen: %s", grund)

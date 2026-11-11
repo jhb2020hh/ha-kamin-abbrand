@@ -1,4 +1,4 @@
-"""Schalter. Handbetrieb und Wartung liest die App nur, sie lehnt die Befehle ab."""
+"""Schalter. Handbetrieb schaltet im Betrieb den Handbetrieb der App (Ausschalten immer), Wartung liest die App nur."""
 from __future__ import annotations
 
 from homeassistant.components.switch import SwitchEntity

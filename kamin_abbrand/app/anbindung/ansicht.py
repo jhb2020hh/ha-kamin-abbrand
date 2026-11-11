@@ -10,7 +10,7 @@ from typing import Any, Optional
 from anbindung.anlagenprofil import AMORTISATION, KOSTEN, fehlende_angaben
 from anbindung.betrieb import offene_punkte
 from anbindung.buchfuehrung import EINSTELLUNGEN, SALDO, VORGABEN
-from anbindung.einstellungen import AUSGANG, ROLLEN
+from anbindung.einstellungen import AUSGANG, HAND_DAUERN_MIN, ROLLEN
 from kern import abbrand_dauer, wartung, wirtschaft
 from kern.wirtschaft import leistung_nach_kw
 from kern.autotune import Probe
@@ -18,6 +18,8 @@ from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GL
                         SIGNAL_FRISCH, SIGNAL_STUMM, STANDBY, STOERUNG, TUER_OFFEN, WARTUNG)
 
 BEOBACHTUNG_TEXT = "Lauschen: Die App steuert die Klappe nicht. Das geht erst im Betrieb."
+HAND_LAUSCHEN_TEXT = ("Handbetrieb der App geht nur im Betrieb. Im Lauschen stellt die Automation die Klappe, "
+                      "dort den Handbetrieb in Home Assistant nutzen.")
 BETRIEB_NUR_HA_TEXT = ("Auch im Betrieb liest die App das nur. Bitte die zugewiesene Entität "
                        "in Home Assistant schalten.")
 AUTOTUNE_GESPERRT = "In dieser Version gesperrt: Der Testlauf darf die Klappe nicht bewegen."
@@ -191,6 +193,25 @@ def _tag_zeigen(z: dict) -> dict:
             "ohne_menge": z["ohne_menge"]}
 
 
+def hand_zeigen(app, jetzt: float) -> dict:
+    """Handbetrieb der App für Karte und Integration."""
+    sp = app.speicher
+    aktiv = app.hand_aktiv(jetzt)
+    ha_an = app.eingaenge.wert(_rolle(app, "handbetrieb")) == "on"
+    return {
+        "aktiv": aktiv,
+        "ha_an": ha_an,
+        "rest_s": sp.hand_rest_s(jetzt) if aktiv else None,
+        "bis": sp.hand_bis if aktiv else None,
+        "dauer_min": sp.hand_dauer_min,
+        "dauern_min": list(HAND_DAUERN_MIN),
+        "klappe": float(sp.parameter_neu.get("klappe_manuell", app.parameter_neu.klappe_manuell)),
+        "moeglich": app.im_betrieb,
+        "grund": None if app.im_betrieb else HAND_LAUSCHEN_TEXT,
+        "motorisiert": bool(sp.anlagenprofil.klappe_motorisiert),
+    }
+
+
 def status(app: Any, jetzt: Optional[float] = None) -> dict:
     jetzt = time.time() if jetzt is None else jetzt
     ein = app.eingaenge
@@ -220,6 +241,9 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
                    if x["bereich"] not in (KOSTEN, AMORTISATION)]
     gesendet = app.ausgaenge.gesendet if app.im_betrieb else None
     fehlend = [r.titel for r in ROLLEN if r.stufe == "pflicht" and r.art != AUSGANG and not _rolle(app, r.schluessel)]
+    hand = hand_zeigen(app, jetzt)
+    if hand["aktiv"] and phase:
+        stil, satz = "wartung", f"Handbetrieb: Klappe {hand['klappe']:.0f} %, noch {hand['rest_s'] / 60:.0f} min."
     return {
         "zeit": jetzt,
         "phase": phase,
@@ -256,7 +280,8 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "fuehler_stumm": signal == SIGNAL_STUMM,
         "signal": signal or SIGNAL_FRISCH,
         "ausgaenge_zugewiesen": bool(_rolle(app, "ausgang_klappe")),
-        "handbetrieb": ein.wert(_rolle(app, "handbetrieb")) == "on",
+        "handbetrieb": ein.wert(_rolle(app, "handbetrieb")) == "on" or hand["aktiv"],
+        "hand": hand,
         "wartung": ein.wert(_rolle(app, "wartung")) == "on",
         "klappe_manuell": p.klappe_manuell,
         "leistung": leistung_app or leistung_live,

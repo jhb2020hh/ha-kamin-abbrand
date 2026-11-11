@@ -22,7 +22,7 @@ from anbindung.anlagenprofil import (Erzeuger, einheit_normal, fehlende_angaben,
 from anbindung.benachrichtigung import ARTEN, dienst_gueltig, geraete_aus_diensten, lesbarer_name
 from anbindung.bereitstellung import eigener_host
 from anbindung import ansicht
-from anbindung.ansicht import AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_HA_TEXT
+from anbindung.ansicht import AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_HA_TEXT, HAND_LAUSCHEN_TEXT
 from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, PARAMETER_THEMEN, REGLER_FELDER,
                                      ROLLEN, EinstellungsFehler)
@@ -39,7 +39,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.3.5"
+VERSION = "0.3.6"
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -78,6 +78,7 @@ class Webserver:
         r.add_get("/api/parameter", self._parameter)
         r.add_post("/api/parameter", self._parameter_setzen)
         r.add_post("/api/leistung", self._leistung)
+        r.add_post("/api/hand", self._hand)
         r.add_post("/api/autotune/verlauf", self._autotune_verlauf)
         r.add_post("/api/autotune/uebernehmen", self._autotune_uebernehmen)
         r.add_post("/api/autotune/aktiv", self._autotune_aktiv)
@@ -361,6 +362,20 @@ class Webserver:
         inhalt = await anfrage.json()
         return web.json_response({"ziel": self._leistung_setzen(inhalt.get("modus"))})
 
+    async def _hand(self, anfrage: web.Request) -> web.Response:
+        """Handbetrieb der App: {an, dauer_min?, klappe?}. Nur im Betrieb, Ausschalten geht immer."""
+        inhalt = await anfrage.json()
+        if not isinstance(inhalt, dict):
+            raise ValueError
+        an = bool(inhalt.get("an"))
+        if an and not self.app.im_betrieb:
+            return web.json_response({"fehler": HAND_LAUSCHEN_TEXT}, status=409)
+        if inhalt.get("klappe") is not None:
+            self._setzen("klappe_manuell", inhalt["klappe"])
+        dauer = inhalt.get("dauer_min")
+        bis = self.app.hand_setzen(an, None if dauer is None else float(dauer))
+        return web.json_response({"ok": True, "bis": bis})
+
     async def _vorschlag_rechnen(self) -> Any:
         proben = await asyncio.to_thread(ansicht.proben_lesen, self.ordner)
         self.app.autotune_vorschlag = await asyncio.to_thread(autotune.aus_verlauf, proben)
@@ -490,10 +505,16 @@ class Webserver:
 
     async def _befehl_im_modus(self, name: str, wert: Any) -> web.Response:
         """Im Lauschen immer gesperrt. Im Betrieb nur, was die App wirklich ausführen kann."""
+        if name == "handbetrieb" and not wert:
+            self.app.hand_setzen(False)     # Ausschalten geht immer
+            return web.json_response({"ok": True})
         if not self.app.im_betrieb:
             return web.json_response({"fehler": BEOBACHTUNG_TEXT}, status=409)
         if name in _IM_BETRIEB_PARAMETER:
             self._setzen(name, wert)
+            return web.json_response({"ok": True})
+        if name == "handbetrieb":
+            self.app.hand_setzen(bool(wert))
             return web.json_response({"ok": True})
         if name == "fuehler_neustart":
             if not self.app.fuehler_neustart_moeglich():

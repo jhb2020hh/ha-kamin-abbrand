@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6
+
+- Neu: Handbetrieb für Klappentest und Wartung direkt in der App, als Karte auf der Startseite. Wählbar sind Klappenstellung (Schieber oder 0/50/100 %) und Dauer (15, 30, 60 oder 120 min). Danach übernimmt die Automatik von selbst. Die Begrenzung bei Übertemperatur bleibt aktiv.
+- Der Handbetrieb wirkt nur im Betrieb. Im Lauschen stellt weiter die Automation die Klappe, die App schreibt dort nichts. Beim Wechsel auf Lauschen endet der Handbetrieb.
+- Der Schalter „Handbetrieb“ der Integration schaltet jetzt im Betrieb den Handbetrieb der App, statt den Befehl abzulehnen.
+
 ## 0.3.5
 
 - Behoben: Ein Kaltstart wurde als heißes Nachlegen gewertet, wenn das Feuer bei offener Tür schon hochgebrannt war, und die Klappe ging auf „Klappe beim Nachlegen“. Für den Startfall zählt jetzt die Temperatur von vor dem ersten Öffnen. Öffnet man die Tür im Anheizen erneut, bleibt der Startfall erhalten.

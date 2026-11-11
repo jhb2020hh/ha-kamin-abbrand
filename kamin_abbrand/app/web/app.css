@@ -157,6 +157,10 @@ code { font-size: .85em; word-break: break-all }
 button.klein { padding: 6px 10px; font-size: .84rem; margin-top: 6px }
 .banner.betrieb { border-left-color: var(--akzent) }
 .betrieb-kopf { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between }
+.hand-zeile { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 10px }
+.hand-zeile input[type="range"] { flex: 1 1 160px; min-width: 0 }
+.hand-zeile .etikett { min-width: 52px }
+.hand .umschalter button { padding: 9px 11px }
 .betrieb-liste { margin: 8px 0 0 18px; padding: 0 }
 .betrieb-liste li { margin: 4px 0 }
 .betrieb-frage { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line) }

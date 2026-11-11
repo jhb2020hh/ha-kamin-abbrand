@@ -13,7 +13,8 @@ import pytest
 from anbindung import main as main_modul
 from anbindung.betrieb import zustand_laden, zustand_sichern
 from anbindung.eingaenge import Eingaenge, Entitaeten
-from anbindung.einstellungen import Speicher
+from anbindung import ansicht
+from anbindung.einstellungen import EinstellungsFehler, Speicher
 from anbindung.ha_client import HaClient
 from anbindung.main import App, entitaeten_aus, naechstes_raster
 from anbindung.schatten import Verlauf
@@ -906,5 +907,74 @@ def test_verlauf_zeigt_im_betrieb_die_gesendete_klappe(tmp_path):
             zeilen = [json.loads(z) for z in next(tmp_path.glob("verlauf-*.jsonl")).read_text(encoding="utf-8").splitlines()]
             paritaet = [z for z in zeilen if z["regelstand"] == "paritaet" and z.get("live")]
             assert paritaet and paritaet[-1]["live"]["klappe_soll"] == 100
+
+    asyncio.run(ablauf())
+
+
+# ---- Handbetrieb der App ---------------------------------------------
+
+def test_handbetrieb_der_app_stellt_klappe_und_endet_von_selbst(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            gesicherter_zustand(tmp_path, 10)
+            s = betrieb_speicher(tmp_path)
+            s.parameter_setzen("klappe_manuell", 30)
+            async with betriebs_app(ha, tmp_path, main_modul.steuerung_aus_kern, speicher=s) as app:
+                await warte_auf(lambda: klappenbefehle(ha))
+                bis = app.hand_setzen(True, 15)
+                assert bis is not None and app.hand_aktiv(app._uhr())
+                await warte_auf(lambda: klappenbefehle(ha)[-1][1]["position"] == 30)
+                assert ansicht.status(app)["hand"]["aktiv"] and ansicht.status(app)["handbetrieb"]
+                s.daten["hand"]["bis"] = app._uhr() - 1          # Zeit abgelaufen
+                await warte_auf(lambda: s.hand_bis is None)
+                assert not app.hand_aktiv(app._uhr())
+                assert any("Handbetrieb nach 15 min beendet" in m["text"] for m in app.meldungen)
+
+    asyncio.run(ablauf())
+
+
+def test_handbetrieb_der_app_bleibt_unter_uebertemperatur_gekappt(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha, abgas="800")
+            gesicherter_zustand(tmp_path, 10)
+            s = betrieb_speicher(tmp_path)
+            s.parameter_setzen("klappe_manuell", 90)
+            async with betriebs_app(ha, tmp_path, main_modul.steuerung_aus_kern, speicher=s) as app:
+                app.hand_setzen(True)
+                await warte_auf(lambda: app.letzte.get(NEU) and app.hand_aktiv(app._uhr())
+                                and app.letzte[NEU][0].klappe <= s.parameter_neu.get("klappe_uebertemperatur", 25))
+
+    asyncio.run(ablauf())
+
+
+def test_handbetrieb_der_app_geht_im_lauschen_nicht_und_alter_wird_beendet(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            s = betrieb_speicher(tmp_path, modus="lauschen")
+            s.daten["hand"]["bis"] = 4_000_000_000.0          # aus einem früheren Betrieb übrig
+            fabrik = StubFabrik()
+            async with betriebs_app(ha, tmp_path, fabrik, speicher=s, takt_paritaet_s=0.03) as app:
+                await warte_auf(lambda: s.hand_bis is None)
+                with pytest.raises(EinstellungsFehler):
+                    app.hand_setzen(True)
+                assert not ansicht.status(app)["hand"]["moeglich"]
+            assert ha.schaltbefehle() == []
+
+    asyncio.run(ablauf())
+
+
+def test_lauschen_beendet_den_handbetrieb(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            gesicherter_zustand(tmp_path, 10)
+            s = betrieb_speicher(tmp_path)
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s) as app:
+                app.hand_setzen(True, 60)
+                await app._betrieb_verlassen()
+                assert s.hand_bis is None and not app.hand_aktiv(app._uhr())
 
     asyncio.run(ablauf())

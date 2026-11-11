@@ -649,9 +649,14 @@ def test_integration_im_betrieb():
 
         r = await integ.post("/integration/befehl", json={"name": "fuehler_neustart"}, headers=k)
         assert r.status == 409 and "kein Ausgang" in (await r.json())["fehler"]
-        for name in ("handbetrieb", "wartung"):
-            r = await integ.post("/integration/befehl", json={"name": name, "wert": True}, headers=k)
-            assert r.status == 409 and "Home Assistant" in (await r.json())["fehler"]
+        r = await integ.post("/integration/befehl", json={"name": "wartung", "wert": True}, headers=k)
+        assert r.status == 409 and "Home Assistant" in (await r.json())["fehler"]
+        # Handbetrieb schaltet im Betrieb den Handbetrieb der App
+        r = await integ.post("/integration/befehl", json={"name": "handbetrieb", "wert": True}, headers=k)
+        assert r.status == 200 and app.hand_aktiv(app._uhr())
+        assert (await (await integ.get("/integration/zustand", headers=k)).json())["handbetrieb"] is True
+        r = await integ.post("/integration/befehl", json={"name": "handbetrieb", "wert": False}, headers=k)
+        assert r.status == 200 and not app.hand_aktiv(app._uhr())
         r = await integ.post("/integration/befehl", json={"name": "autotune_aktiv"}, headers=k)
         assert r.status == 409 and "gesperrt" in (await r.json())["fehler"]
         r = await ober.post("/api/autotune/aktiv", json={})
@@ -754,4 +759,25 @@ def test_startseite_nennt_fehlende_angaben_ohne_kosten():
         app.speicher.rollen_setzen({}, True)
         s = await (await ober.get("/api/status")).json()
         assert any("Abgastemperatur" in x["text"] for x in s["einrichtung"])
+    mit_web(p)
+
+
+def test_api_hand_im_betrieb_und_im_lauschen():
+    async def p(ober, integ, app, ha, tmp):
+        await bereit_machen(ober, app, ha)
+        r = await ober.post("/api/hand", json={"an": True, "dauer_min": 15})
+        assert r.status == 409 and "nur im Betrieb" in (await r.json())["fehler"]
+        r = await ober.post("/api/hand", json={"an": False, "klappe": 35})      # Wert setzen geht auch im Lauschen
+        assert r.status == 200 and app.speicher.parameter_neu["klappe_manuell"] == 35
+        status = await (await ober.get("/api/status")).json()
+        assert status["hand"]["aktiv"] is False and status["hand"]["moeglich"] is False and status["hand"]["klappe"] == 35
+        await einschalten(ober)
+        r = await ober.post("/api/hand", json={"an": True, "dauer_min": 60, "klappe": 20})
+        assert r.status == 200 and (await r.json())["bis"] is not None
+        status = await (await ober.get("/api/status")).json()
+        assert status["hand"]["aktiv"] and status["hand"]["dauer_min"] == 60 and status["hand"]["klappe"] == 20
+        assert status["satz"].startswith("Handbetrieb") or status["phase"] is None
+        assert (await ober.post("/api/hand", json={"an": True, "dauer_min": 7})).status == 400
+        assert (await ober.post("/api/hand", json={"an": False})).status == 200
+        assert not (await (await ober.get("/api/status")).json())["hand"]["aktiv"]
     mit_web(p)

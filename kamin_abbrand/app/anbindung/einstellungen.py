@@ -29,6 +29,9 @@ LAUSCHEN, BETRIEB = "lauschen", "betrieb"
 # Einmalige Bestätigung vor dem ersten Betrieb.
 BESTAETIGUNG_PUNKTE = ("co_melder", "hersteller", "verantwortung")
 OHNE_WATCHDOG = "ohne_watchdog"
+# Handbetrieb der App: wählbare Dauern, danach übernimmt wieder die Automatik.
+HAND_DAUERN_MIN = (15.0, 30.0, 60.0, 120.0)
+HAND_DAUER_VORGABE = 30.0
 _STELLGLIED = ("cover", "light", "number", "input_number")
 
 
@@ -259,6 +262,10 @@ class Speicher:
             daten["wasser_grenzen"] = {}
         if not isinstance(daten.get("leistung"), dict):
             daten["leistung"] = {}
+        hand = daten.get("hand") if isinstance(daten.get("hand"), dict) else {}
+        dauer = als_zahl(hand.get("dauer_min"))
+        daten["hand"] = {"bis": als_zahl(hand.get("bis")),
+                         "dauer_min": dauer if dauer in HAND_DAUERN_MIN else HAND_DAUER_VORGABE}
         if not isinstance(daten.get("wartung"), dict):
             # Die Zählung beginnt bei der Installation dieser Funktion.
             daten["wartung"] = {"basis_s": float(daten["betrieb_s"]), "letzte_reinigung": None, "erinnert": None}
@@ -477,6 +484,40 @@ class Speicher:
         self._leistung_nachfuehren(name)
         self.speichern()
         return zahl
+
+    # ---- Handbetrieb der App (nur im Betrieb wirksam) ---------------
+
+    def hand_aktiv(self, jetzt: float) -> bool:
+        bis = self.daten["hand"]["bis"]
+        return bis is not None and jetzt < bis
+
+    def hand_rest_s(self, jetzt: float) -> Optional[float]:
+        bis = self.daten["hand"]["bis"]
+        return max(0.0, bis - jetzt) if bis is not None and jetzt < bis else None
+
+    @property
+    def hand_dauer_min(self) -> float:
+        return self.daten["hand"]["dauer_min"]
+
+    @property
+    def hand_bis(self) -> Optional[float]:
+        return self.daten["hand"]["bis"]
+
+    def hand_starten(self, jetzt: float, dauer_min: Optional[float] = None) -> float:
+        """Startet oder verlängert den Handbetrieb. Rückgabe: Endzeit."""
+        if dauer_min is not None:
+            if dauer_min not in HAND_DAUERN_MIN:
+                raise EinstellungsFehler(f"Dauer {dauer_min} min ist nicht vorgesehen.")
+            self.daten["hand"]["dauer_min"] = float(dauer_min)
+        self.daten["hand"]["bis"] = jetzt + self.daten["hand"]["dauer_min"] * 60
+        self.speichern()
+        return self.daten["hand"]["bis"]
+
+    def hand_beenden(self) -> None:
+        if self.daten["hand"]["bis"] is None:
+            return
+        self.daten["hand"]["bis"] = None
+        self.speichern()
 
     def tuerkontakt_setzen(self, vorhanden: bool) -> None:
         self.daten["tuerkontakt_vorhanden"] = bool(vorhanden)

@@ -392,3 +392,20 @@ def test_entfallene_rolle_ausgang_meldungen_stoert_beim_laden_nicht(tmp_path):
     assert s.rollen == {"abgas": "sensor.a"}
     s.rollen_setzen(s.rollen, True)
     assert "ausgang_meldungen" not in json.loads(pfad.read_text(encoding="utf-8"))["rollen"]
+
+
+def test_handbetrieb_im_speicher(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    assert s.hand_bis is None and s.hand_dauer_min == 30 and not s.hand_aktiv(1000.0)
+    bis = s.hand_starten(1000.0, 15)
+    assert bis == 1000.0 + 900 and s.hand_aktiv(1899.0) and not s.hand_aktiv(1900.0)
+    assert s.hand_rest_s(1600.0) == 300
+    with pytest.raises(EinstellungsFehler):
+        s.hand_starten(1000.0, 7)
+    # bleibt über einen Neustart erhalten, eine verdorbene Angabe fällt auf die Vorgabe zurück
+    assert Speicher(tmp_path / "e.json").hand_bis == bis
+    s.hand_beenden()
+    assert Speicher(tmp_path / "e.json").hand_bis is None
+    (tmp_path / "f.json").write_text('{"hand": {"bis": "x", "dauer_min": 999}}')
+    f = Speicher(tmp_path / "f.json")
+    assert f.hand_bis is None and f.hand_dauer_min == 30
