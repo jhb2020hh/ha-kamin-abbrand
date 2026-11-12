@@ -120,6 +120,12 @@ class Ausgaenge:
         self._abweichung_seit = None
         self._zaehler = None
 
+    def stoerung_quittieren(self) -> Optional[str]:
+        """Von Hand bestätigt. Der nächste Lauf sendet neu, besteht der Fehler weiter, meldet er sich wieder."""
+        war = self.stoerung
+        self.zuruecksetzen()
+        return war
+
     def zuruecksetzen(self) -> None:
         self.vergessen()
         self._fehlschlaege = 0

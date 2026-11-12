@@ -207,3 +207,43 @@ def test_tuer_wirkt_auch_ohne_messwert():
     e = s.schritt(eingabe(t=None, tuer_offen=True))
     assert s.zustand.phase == TUER_OFFEN and e.klappe == 100
     assert s.zustand.t_phasenstart == 180 and s.zustand.t_maximum == 230
+
+
+# ---------- Fehler quittieren ----------
+
+def test_anheizfehler_quittiert_kalter_ofen_geht_in_standby():
+    from kern.typen import QUITTIEREN
+    s = steuerung(phase=ANHEIZFEHLER, seit=600)
+    r = s.schritt(eingabe(t=30.0, ausloeser=QUITTIEREN))
+    assert r.uebergang == (ANHEIZFEHLER, STANDBY)
+    assert any("quittiert" in m.text for m in r.meldungen)
+
+
+def test_anheizfehler_quittiert_heisser_ofen_geht_in_passende_phase():
+    from kern.typen import QUITTIEREN
+    s = steuerung(phase=ANHEIZFEHLER, seit=600)
+    r = s.schritt(eingabe(t=Parameter().t_glut + 20, ausloeser=QUITTIEREN))
+    assert r.zustand.phase == AUSBRAND
+
+
+def test_stoerung_quittiert_bei_frischem_messwert():
+    from kern.typen import QUITTIEREN
+    s = steuerung(phase=STOERUNG, seit=600)
+    r = s.schritt(eingabe(t=30.0, ausloeser=QUITTIEREN))
+    assert r.zustand.phase == STANDBY
+
+
+def test_stoerung_bleibt_wenn_fuehler_stumm():
+    from kern.typen import QUITTIEREN
+    s = steuerung(phase=STOERUNG, seit=600)
+    r = s.schritt(eingabe(t=30.0, t_alter_s=5000, dp_alter_s=5000, can_alter_s=500, ausloeser=QUITTIEREN))
+    assert r.zustand.phase == STOERUNG and r.uebergang is None
+    assert any("nicht möglich" in m.text for m in r.meldungen)
+    assert r.klappe == 100
+
+
+def test_quittieren_ohne_fehler_aendert_nichts():
+    from kern.typen import QUITTIEREN
+    s = steuerung(phase=ABBRAND, seit=3600)
+    r = s.schritt(eingabe(t=200.0, ausloeser=QUITTIEREN))
+    assert r.regel != "Fehler quittiert → passende Phase"

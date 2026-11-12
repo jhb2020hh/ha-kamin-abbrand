@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.9
+
+- Neu: Fehler lassen sich im Betrieb von Hand quittieren, über die Karte „Fehler quittieren“ auf der Startseite oder den Knopf „Fehler quittieren“ der Integration. Ein Anheizfehler geht bei kaltem Ofen sofort in Standby, bei warmem Ofen in Ausbrand, Glut oder Abkühlen. Bisher musste man dafür 90 min warten. Eine Störung lässt sich quittieren, sobald der Fühler wieder frische Werte liefert. Eine Klappenstörung wird zurückgesetzt und meldet sich wieder, falls sie weiter besteht.
+
 ## 0.3.8
 
 - Behoben: Eine Klappenrückmeldung in Volt wurde als Prozent gelesen (5,8 V ergaben „Iststellung 6 %“). Im Betrieb hätte das nach zwei Minuten „Klappe folgt nicht“ ausgelöst.

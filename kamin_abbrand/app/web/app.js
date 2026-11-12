@@ -153,6 +153,13 @@ function wertKarte(titel, gross, einheit, zusatz, balken) {
     zusatz && h("div", { klasse: "leise" }, zusatz),
     balken !== undefined && h("div", { klasse: "balken" }, h("i", { stil: `width:${Math.min(Math.max(balken || 0, 0), 100)}%` })));
 }
+async function quittieren() {
+  try {
+    const d = await api("api/quittieren", {});
+    toast(d.fehler_offen ? `Noch nicht quittiert: ${d.phase}. Ursache prüfen.` : `Quittiert, weiter mit ${d.phase}.`);
+  } catch (f) { melden(f); }
+  aktualisieren();
+}
 async function leistungWaehlen(modus) {
   try { const d = await api("api/leistung", { modus }); toast(`Leistung ${modus}: Ziel ${zahl(d.ziel)} °C`); aktualisieren(); } catch (f) { melden(f); }
 }
@@ -189,6 +196,12 @@ function startZeichnen(s) {
       kennzahl("Ø gesamt", minuten(ad.schnitt_gesamt_min)),
       kennzahl("Abbrände gesamt", zahl(ad.anzahl_gesamt))),
     h("p", { klasse: "leise" }, `Ein Abbrand endet unter ${zahl(ad.t_glut)} °C oder beim nächsten Nachlegen. Fehlstarts zählen nicht.`));
+  const fehlerKarte = (s.stoerung || s.klappe_folgt_nicht || (s.betrieb && s.betrieb.stoerung)) && h("div", { klasse: "karte", stil: "--farbe:var(--fehler)" },
+    h("h2", {}, "Fehler quittieren"),
+    s.modus === "betrieb"
+      ? [h("p", {}, "Ursache beheben, dann quittieren. Ist der Ofen kalt, geht die Steuerung zurück in Standby, sonst in die passende Phase. Besteht der Fehler weiter, meldet er sich wieder."),
+         h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: quittieren }, "Fehler quittieren"))]
+      : h("p", { klasse: "leise" }, "Im Lauschen führt die Automation in Home Assistant die Phase. Eine Störung endet dort, sobald der Fühler wieder Werte liefert, ein Anheizfehler nach 90 min."));
   const klappeWarnung = s.klappe_folgt_nicht && h("div", { klasse: "karte", stil: "--farbe:var(--fehler)" }, h("h2", {}, "Klappe folgt nicht"),
     h("p", {}, "Die Rückmeldung passt nicht zur Sollstellung. Bitte Antrieb, Verdrahtung und Rückmeldung prüfen."));
 
@@ -231,7 +244,7 @@ function startZeichnen(s) {
   const einrichtung = s.einrichtung.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Einrichtung noch nicht fertig"),
     h("p", { klasse: "leise" }, `${s.einrichtung.length === 1 ? "Eine Angabe fehlt" : `${s.einrichtung.length} Angaben fehlen`} noch. Ofenart, Puffer und Wärmeerzeuger stehen unter Anlage, die Sensoren unter Ein-/Ausgänge.`),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "textknopf", onclick: () => gehe("anlage") }, "Zur Anlage"), " ", h("button", { klasse: "textknopf", onclick: () => gehe("eingaenge") }, "Zu den Ein-/Ausgängen")));
-  zeige(...[fehlt, einrichtung, klappeWarnung, wasser, reinigung, leistungKarte, betriebKarte(s), karte, werte, dauerKarte, band, handKarte(s)].filter(Boolean));
+  zeige(...[fehlt, einrichtung, fehlerKarte, klappeWarnung, wasser, reinigung, leistungKarte, betriebKarte(s), karte, werte, dauerKarte, band, handKarte(s)].filter(Boolean));
 }
 
 // ---- Verlauf -----------------------------------------------------------

@@ -23,7 +23,8 @@ from anbindung.anlagenprofil import (Erzeuger, einheit_normal, fehlende_angaben,
 from anbindung.benachrichtigung import ARTEN, dienst_gueltig, geraete_aus_diensten, lesbarer_name
 from anbindung.bereitstellung import eigener_host
 from anbindung import ansicht
-from anbindung.ansicht import AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_HA_TEXT, HAND_LAUSCHEN_TEXT
+from anbindung.ansicht import (AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_HA_TEXT, HAND_LAUSCHEN_TEXT,
+                               QUITTIEREN_LAUSCHEN_TEXT)
 from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, PARAMETER_THEMEN, REGLER_FELDER,
                                      ROLLEN, EinstellungsFehler)
@@ -40,7 +41,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.3.8"
+VERSION = "0.3.9"
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -80,6 +81,7 @@ class Webserver:
         r.add_post("/api/parameter", self._parameter_setzen)
         r.add_post("/api/leistung", self._leistung)
         r.add_post("/api/hand", self._hand)
+        r.add_post("/api/quittieren", self._quittieren)
         r.add_post("/api/autotune/verlauf", self._autotune_verlauf)
         r.add_post("/api/autotune/uebernehmen", self._autotune_uebernehmen)
         r.add_post("/api/autotune/aktiv", self._autotune_aktiv)
@@ -385,6 +387,11 @@ class Webserver:
         bis = self.app.hand_setzen(an, None if dauer is None else float(dauer))
         return web.json_response({"ok": True, "bis": bis})
 
+    async def _quittieren(self, _: web.Request) -> web.Response:
+        if not self.app.im_betrieb:
+            return web.json_response({"fehler": QUITTIEREN_LAUSCHEN_TEXT}, status=409)
+        return web.json_response({"ok": True} | await self.app.quittieren())
+
     async def _vorschlag_rechnen(self) -> Any:
         proben = await asyncio.to_thread(ansicht.proben_lesen, self.ordner)
         self.app.autotune_vorschlag = await asyncio.to_thread(autotune.aus_verlauf, proben)
@@ -525,6 +532,8 @@ class Webserver:
         if name == "handbetrieb":
             self.app.hand_setzen(bool(wert))
             return web.json_response({"ok": True})
+        if name == "quittieren":
+            return web.json_response({"ok": True} | await self.app.quittieren())
         if name == "fuehler_neustart":
             if not self.app.fuehler_neustart_moeglich():
                 return web.json_response({"fehler": "Für den Fühler-Neustart ist kein Ausgang zugewiesen."}, status=409)
@@ -535,7 +544,7 @@ class Webserver:
 
 
 _NUR_APP = {"kp": "regler_verstaerkung", "tn": "regler_nachstellzeit", "kd": "regler_vorhaltung"}
-_BEOBACHTUNG_GESPERRT = {"handbetrieb", "wartung", "klappe_manuell", "t_ziel", "fuehler_neustart"}
+_BEOBACHTUNG_GESPERRT = {"handbetrieb", "wartung", "klappe_manuell", "t_ziel", "fuehler_neustart", "quittieren"}
 _IM_BETRIEB_PARAMETER = ("klappe_manuell", "t_ziel")
 
 

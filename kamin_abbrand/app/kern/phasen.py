@@ -12,7 +12,7 @@ from typing import Callable, Optional
 from kern.regler import i_start
 from kern.signale import T_DECKEL, Werte, runde, t_oder_null
 from kern.typen import (ABBRAND, ABKUEHLEN, AKTION_SNIFFER_RESTART, AKTION_WARTUNG_AUS,
-                        ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, SENSOR_WEG, SIGNAL_FRISCH,
+                        ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, QUITTIEREN, SENSOR_WEG, SIGNAL_FRISCH,
                         SIGNAL_STUMM, STANDBY, STOERUNG, TUER_OFFEN, WARTUNG, WARTUNG_AN, Eingaben, Meldung,
                         Parameter, Zustand)
 
@@ -347,6 +347,28 @@ def _stoerung_pruefen_neu(lauf: Lauf) -> None:
         lauf.push(TITEL, f"LUC-Messwerte wieder da ({runde(w.t)} °C).")
 
 
+FEHLER_PHASEN = (STOERUNG, ANHEIZFEHLER)
+
+
+def _quittieren(lauf: Lauf) -> None:
+    """Fehler von Hand bestätigt: zurück in die Phase, die zum Ofen passt, kalt also Standby.
+
+    Eine Fühlerstörung lässt sich nur quittieren, wenn der Fühler wieder frische Werte liefert.
+    Sonst bleibt die Phase und mit ihr die offene Klappe.
+    """
+    w = lauf.w
+    if w.phase == STOERUNG and lauf.signal == SIGNAL_STUMM:
+        lauf.push(TITEL, "Quittieren nicht möglich: Der Abgasfühler liefert noch keine frischen Werte. "
+                         "Die Klappe bleibt offen.")
+        return
+    alt = w.phase
+    if alt == STOERUNG:
+        phase_setzen(lauf, ANHEIZEN if w.t > w.kalt else STANDBY)
+    else:
+        _ohne_feuer_zurueck(lauf)
+    lauf.push(TITEL, f"{alt} quittiert ({runde(w.t)} °C), weiter mit {lauf.z.phase}.")
+
+
 def _regeln_neu() -> tuple[Regel, ...]:
     ersetzt = {
         "Störung: erst bei frischem Messwert beenden, sonst halten":
@@ -366,6 +388,11 @@ def _regeln_neu() -> tuple[Regel, ...]:
     regeln.remove(tuer)
     stopp = next(i for i, r in enumerate(regeln) if r.alias == "Kein Messwert → Phase halten")
     regeln.insert(stopp, tuer)
+    # Quittieren braucht einen Messwert, deshalb direkt hinter „Kein Messwert → Phase halten“.
+    stopp = next(i for i, r in enumerate(regeln) if r.alias == "Kein Messwert → Phase halten")
+    regeln.insert(stopp + 1, Regel("Fehler quittiert → passende Phase",
+                                   lambda l: l.e.ausloeser == QUITTIEREN and l.w.phase in FEHLER_PHASEN,
+                                   _quittieren))
     return tuple(regeln)
 
 

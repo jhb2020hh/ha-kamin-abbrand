@@ -805,3 +805,24 @@ def test_api_hand_im_betrieb_und_im_lauschen():
         assert (await ober.post("/api/hand", json={"an": False})).status == 200
         assert not (await (await ober.get("/api/status")).json())["hand"]["aktiv"]
     mit_web(p)
+
+
+def test_quittieren_nur_im_betrieb_und_anheizfehler_geht_in_standby():
+    from kern.typen import ANHEIZFEHLER, STANDBY
+
+    async def p(ober, integ, app, ha, tmp):
+        k = {"Authorization": f"Bearer {app.speicher.token}"}
+        await bereit_machen(ober, app, ha)
+        r = await ober.post("/api/quittieren", json={})
+        assert r.status == 409 and "Lauschen" in (await r.json())["fehler"]
+        assert (await integ.post("/integration/befehl", json={"name": "quittieren"}, headers=k)).status == 409
+        assert (await einschalten(ober)).status == 200
+        await ha.aendern("sensor.a", "25")
+        await warte_auf(lambda: app.eingaenge.zahl("sensor.a") == 25)
+        app.steuerungen[NEU].zustand.phase = ANHEIZFEHLER
+        r = await ober.post("/api/quittieren", json={})
+        d = await r.json()
+        assert r.status == 200 and d["phase_vorher"] == ANHEIZFEHLER and d["phase"] == STANDBY and not d["fehler_offen"]
+        assert any("quittiert" in m["text"] for m in app.meldungen)
+        assert (await integ.post("/integration/befehl", json={"name": "quittieren"}, headers=k)).status == 200
+    mit_web(p)

@@ -39,6 +39,20 @@ Zum Testen der Klappe und für die Wartung gibt es auf der Startseite die Karte 
 
 Der Handbetrieb wirkt nur im **Betrieb**. Im Lauschen stellt deine Automation die Klappe, nutze dort deren Handbetrieb. Beim Wechsel auf Lauschen und bei einem Rückfall endet der Handbetrieb. Die Begrenzung bei Übertemperatur bleibt auch im Handbetrieb aktiv. Der Schalter „Handbetrieb“ der Integration schaltet denselben Handbetrieb.
 
+### Fehler quittieren
+
+Es gibt drei Arten von Fehlern. Bei allen steht die Klappe auf 100 %.
+
+| Fehler | Ursache | Ende ohne Zutun |
+|---|---|---|
+| **Störung** | Abgasfühler oder LUC liefern keine frischen Werte | sobald wieder frische Werte kommen |
+| **Anheizfehler** | Abbrandtemperatur nicht erreicht oder Feuer nach < 15 min zusammengefallen | nach 90 min Standby, bei Temperaturanstieg wieder Anheizen |
+| **Klappenstörung** | Klappe nimmt keine Befehle an oder folgt der Sollstellung nicht | sobald ein Befehl wieder ankommt bzw. die Stellung wieder passt |
+
+Im **Betrieb** erscheint bei einem Fehler auf der Startseite die Karte **Fehler quittieren**, in Home Assistant gibt es dafür den Knopf „Fehler quittieren“. Behebe zuerst die Ursache und quittiere dann. Ist der Ofen kalt, geht die Steuerung zurück in **Standby**. Ist er noch warm, wechselt sie in die passende Phase, also Ausbrand, Glut oder Abkühlen, nach einer Störung in Anheizen. Eine Störung lässt sich erst quittieren, wenn der Fühler wieder frische Werte liefert. Bis dahin bleibt die Klappe offen. Besteht ein Klappenfehler weiter, meldet er sich nach dem Quittieren wieder.
+
+Im **Lauschen** führt die Automation in Home Assistant die Phase, die App quittiert dort nichts. Ist die App wegen eines Fehlers auf Lauschen zurückgefallen, schaltest du nach der Behebung den Betrieb wieder ein.
+
 ## Voraussetzungen
 
 - Home Assistant mit Supervisor, also Home Assistant OS oder Supervised.

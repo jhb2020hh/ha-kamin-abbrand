@@ -203,3 +203,17 @@ def test_zugewiesene_ausgaenge_ohne_reine_eingaenge():
     # Wer dieselbe Entität als Pumpe und Wartung einträgt, bekommt sie nicht schaltbar.
     gleich = {"pumpe": "switch.x", "wartung": "switch.x", "ausgang_klappe": "cover.k"}
     assert zugewiesene_ausgaenge(gleich) == {"cover.k"}
+
+
+def test_stoerung_quittieren_setzt_zurueck_und_meldet_erneut():
+    async def ablauf():
+        s = Stand(fehler=OSError("weg"))
+        for t in range(3):
+            await s.a.klappe(40, 1000 + t)
+        assert s.a.stoerung
+        assert "keine Befehle" in s.a.stoerung_quittieren()
+        assert s.a.stoerung is None
+        for t in range(3):
+            await s.a.klappe(40, 1010 + t)
+        assert len(s.stoerungen) == 2
+    lauf(ablauf())

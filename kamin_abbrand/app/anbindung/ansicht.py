@@ -23,6 +23,8 @@ HAND_LAUSCHEN_TEXT = ("Handbetrieb der App geht nur im Betrieb. Im Lauschen stel
 BETRIEB_NUR_HA_TEXT = ("Auch im Betrieb liest die App das nur. Bitte die zugewiesene Entität "
                        "in Home Assistant schalten.")
 AUTOTUNE_GESPERRT = "In dieser Version gesperrt: Der Testlauf darf die Klappe nicht bewegen."
+QUITTIEREN_LAUSCHEN_TEXT = ("Im Lauschen quittiert die App nichts: Die Automation in Home Assistant führt die Phase. "
+                            "Eine Störung endet dort, sobald der Fühler wieder Werte liefert, ein Anheizfehler nach 90 min.")
 
 # Phase: (Stil, blinkt, Satz für den Nutzer, Erklärung hinter dem Info-Knopf)
 ZUSTAENDE: dict[str, tuple[str, bool, str, str]] = {

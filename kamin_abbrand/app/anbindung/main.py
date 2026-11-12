@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from anbindung.anlagenprofil import rolle_passt, zaehler_entitaeten, zaehler_nach_kwh
-from anbindung.ansicht import NACHLEGEN_TEXT, nachlegen_moeglich
+from anbindung.ansicht import NACHLEGEN_TEXT, QUITTIEREN_LAUSCHEN_TEXT, nachlegen_moeglich
 from anbindung.ansicht import amortisation_zeigen as ansicht_amortisation
 from anbindung.ausgaenge import Ausgaenge, NEUSTART, zugewiesene_ausgaenge
 from anbindung.benachrichtigung import Benachrichtiger
@@ -47,8 +47,8 @@ from kern import abbrand_dauer
 from kern.wirtschaft import energie_nach_kwh, leistung_nach_kw
 from kern.phasen import TITEL_ANHEIZFEHLER, TITEL_STOERUNG
 from kern.signale import t_gueltig
-from kern.typen import (ABBRAND, ANHEIZEN, AUSBRAND, GLUT, NEU, PARITAET, SENSOR_WEG, STANDBY, TICK,
-                        Parameter, Zustand)
+from kern.typen import (ABBRAND, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, NEU, PARITAET, QUITTIEREN, SENSOR_WEG, STANDBY, STOERUNG,
+                        TICK, Parameter, Zustand)
 
 log = logging.getLogger("kamin_abbrand")
 
@@ -634,6 +634,27 @@ class App:
             log.warning("Zurück auf Lauschen, %s", folge)
             self.benachrichtiger.melden("betrieb", f"Lauschen: Die App steuert die Klappe nicht mehr. {folge}")
             return offen
+        return await self._ins_warteschlange(arbeit)
+
+    async def quittieren(self) -> dict:
+        """Fehler von Hand bestätigen: Klappenstörung zurücksetzen, Störung oder Anheizfehler verlassen.
+
+        Läuft zwischen zwei Regelläufen. Rückgabe: was quittiert wurde und die Phase danach.
+        """
+        async def arbeit() -> dict:
+            if not self._betrieb:
+                raise EinstellungsFehler(QUITTIEREN_LAUSCHEN_TEXT)
+            neu = self.steuerungen.get(NEU)
+            phase_vorher = neu.zustand.phase if neu is not None else None
+            klappe = self.ausgaenge.stoerung_quittieren()
+            if klappe:
+                text = f"Klappenstörung quittiert: {klappe}"
+                log.warning(text)
+                self.meldungen.appendleft({"zeit": self._uhr(), "text": text})
+            await self._ausfuehren(QUITTIEREN, (NEU,))
+            phase = neu.zustand.phase if neu is not None else None
+            return {"klappe": klappe, "phase_vorher": phase_vorher, "phase": phase,
+                    "fehler_offen": phase in (STOERUNG, ANHEIZFEHLER)}
         return await self._ins_warteschlange(arbeit)
 
     async def fuehler_neustart(self) -> bool:

@@ -32,6 +32,7 @@ WARTUNG_AUS = "wartung_aus"
 BEDIENUNG = "bedienung"
 SENSOR_WEG = "sensor_weg"
 START = "start"
+QUITTIEREN = "quittieren"           # Fehler von Hand bestätigt (nur Regelstand neu)
 
 # Aktionen, die die Anbindung ausführt (im Parallelbetrieb nur protokolliert)
 AKTION_SNIFFER_RESTART = "sniffer_restart"

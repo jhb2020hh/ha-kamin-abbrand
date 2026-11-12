@@ -5,7 +5,8 @@ from homeassistant.components.button import ButtonEntity
 
 from .koordinator import KaminEntitaet
 
-_LISTE = (("autotune_verlauf", "Auto-Tune aus Verlauf"), ("autotune_aktiv", "Auto-Tune aktiv"), ("fuehler_neustart", "Fühler-Neustart"))
+_LISTE = (("autotune_verlauf", "Auto-Tune aus Verlauf"), ("autotune_aktiv", "Auto-Tune aktiv"), ("fuehler_neustart", "Fühler-Neustart"),
+          ("quittieren", "Fehler quittieren"))
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
