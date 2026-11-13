@@ -204,6 +204,8 @@ function startZeichnen(s) {
     s.twt !== null && wertKarte("Wärmetauscher", zahl(s.twt, 1), "°C"),
     s.puffer_unten !== null && wertKarte("Puffer unten", zahl(s.puffer_unten, 1), "°C"),
     pumpeKarte(s),
+    s.reinigung && wertKarte("Reinigung Wärmetauscher", s.reinigung.faellig ? "fällig" : zahl(s.reinigung.rest_h, 0), s.reinigung.faellig ? "" : "h",
+      `${zahl(s.reinigung.gefahren_h, 0)} von ${zahl(s.reinigung.intervall_h, 0)} Brennstunden`, s.reinigung.gefahren_h / Math.max(s.reinigung.intervall_h, 1) * 100),
     experte && s.gradient !== null && s.gradient !== undefined && wertKarte("Gradient", zahl(s.gradient, 1), "K/min"),
     experte && s.i_anteil !== null && wertKarte("I-Anteil", zahl(s.i_anteil, 1), "%", "Integralanteil des Reglers"),
     experte && s.feuer && s.t_maximum !== null && wertKarte("T-Maximum Phase", zahl(s.t_maximum), "°C", s.phase_seit !== null ? `Phase seit ${new Date(s.phase_seit * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr` : null));
@@ -423,7 +425,7 @@ function amortisationKarte(d) {
     a.prozent !== null && [h("div", { klasse: "fortschritt" }, h("i", { stil: `width:${a.prozent}%` })), h("div", { klasse: "leise" }, `${zahl(a.prozent, 1)} % der Investition eingespielt`)],
     h("div", { klasse: "vorschlag", stil: "margin-top:10px" },
       wert("Netto bisher", euro(a.netto_eur, w, 0)), a.rest_eur !== null && wert("Noch offen", euro(a.rest_eur, w, 0)),
-      a.prognose_jahre !== null && wert("Prognose", `${zahl(a.prognose_jahre, 1)} Jahre`), wert("Kaminwärme", `${zahl(a.kaminwaerme_kwh, 0)} kWh`)),
+      a.prognose_jahre !== null && wert("Prognose", `${zahl(a.prognose_jahre, 1)} Jahre`), a.jahresertrag_eur != null && wert("Ertrag je Jahr", euro(a.jahresertrag_eur, w, 0)), wert("Kaminwärme", `${zahl(a.kaminwaerme_kwh, 0)} kWh`)),
     h("p", { klasse: "leise", stil: "margin-top:8px" }, `Netto = Einsparung ${euro(a.einsparung_eur, w, 0)} − Holz ${euro(a.holz_eur, w, 0)} − laufende Kosten ${euro(a.laufend_eur, w, 0)}. ` +
       (tage ? `Kamintage: ${a.tage_gemessen} gemessen, ${a.tage_modell} geschätzt.` : "") +
       (a.tage_unvollstaendig ? ` Bei ${a.tage_unvollstaendig} Tagen fehlt ein Preis, sie zählen ohne Einsparung.` : "")),

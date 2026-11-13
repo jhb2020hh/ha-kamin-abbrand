@@ -137,6 +137,7 @@ ABDECKUNG_VOLLER_TAG_S = 20 * 3600.0
 LERNEN_MIN_TAGE = 14
 LERNEN_MIN_SPREIZUNG_K = 5.0
 PROGNOSE_AB_KWH = 50.0
+WAERME_ABDECKUNG = 0.9      # Anteil der erfassten Zeit, in dem der Wärmezähler lesbar sein muss
 
 
 def nutzwaerme_mit_zaehler(qw_kwh: float, raum_wasser: float = VORGABE_RAUM_WASSER,
@@ -249,10 +250,19 @@ def konfiguration_aus(profil: Anlagenprofil, einstellungen: dict) -> Konfigurati
         laufende_kosten_jahr=einstellungen.get("laufende_kosten_jahr") or 0.0)
 
 
+def zaehler_vollstaendig(zeile: dict) -> bool:
+    """Ob der Wärmezähler den Tag ganz gesehen hat. Zeilen ohne die Angabe gelten als ganz erfasst."""
+    if zeile.get("waerme_luecke"):
+        return False
+    if "waerme_s" not in zeile:
+        return True
+    return zeile["waerme_s"] >= WAERME_ABDECKUNG * zeile.get("s", 0.0)
+
+
 def kaminwaerme(zeile: dict, k: Konfiguration) -> tuple[float, str]:
-    """(kWh Nutzwärme des Tages, Art). Mit Wärmezähler gemessen, sonst aus dem Holz geschätzt."""
+    """(kWh Nutzwärme des Tages, Art). Mit vollständigem Wärmezähler gemessen, sonst aus dem Holz geschätzt."""
     zaehler = zeile.get("waerme_zaehler_kwh")
-    if zaehler is not None:
+    if zaehler is not None and zaehler_vollstaendig(zeile):
         return nutzwaerme_mit_zaehler(zaehler, k.raum_wasser, k.aufstellraum), "gemessen"
     return float(zeile.get("waerme_holz_kwh") or 0.0), "modell"
 
@@ -291,11 +301,14 @@ def tag_auswerten(zeile: dict, k: Konfiguration, endgueltig: bool) -> dict:
 KEINE, FEHLT, WENIG, PROGNOSE, FERTIG = "keine_amortisation", "unbekannt", "zu_wenig_daten", "prognose", "amortisiert"
 
 
-def amortisation(zeilen: list[dict], saldo: dict, investition: Optional[float], jahreswaerme_kwh: Optional[float]) -> dict:
+def amortisation(zeilen: list[dict], saldo: dict, investition: Optional[float], jahreswaerme_kwh: Optional[float],
+                 laufende_kosten_jahr: float = 0.0) -> dict:
     """Netto, Rest, Prozent und Prognose.
 
     Netto ist alles, was der Ofen bisher gebracht hat: Einsparung minus Holz minus laufende Kosten, samt Eröffnungssaldo.
     Ein Urteil gibt es erst ab 50 kWh Kaminwärme. Ist das Netto dann nicht positiv, lautet es „keine Amortisation“.
+    Die Prognose rechnet den Ertrag je kWh Kaminwärme (Einsparung minus Holz) auf die Jahreswärme hoch und zieht
+    die laufenden Kosten für ein ganzes Jahr ab. Sie fallen nach Zeit an, nicht nach Wärme.
     """
     einsparung = (saldo.get("einsparung_eur") or 0.0) + sum(z.get("einsparung_eur") or 0.0 for z in zeilen)
     holz = (saldo.get("holz_eur") or 0.0) + sum(z.get("holz_eur") or 0.0 for z in zeilen)
@@ -310,7 +323,7 @@ def amortisation(zeilen: list[dict], saldo: dict, investition: Optional[float], 
     erg: dict = {"einsparung_eur": einsparung, "holz_eur": holz, "laufend_eur": laufend, "netto_eur": netto,
                  "kaminwaerme_kwh": waerme, "investition": investition, "art": art, "tage_gemessen": gemessen,
                  "tage_modell": modell, "tage_unvollstaendig": unvollstaendig,
-                 "rest_eur": None, "prozent": None, "prognose_jahre": None, "status": FEHLT}
+                 "rest_eur": None, "prozent": None, "prognose_jahre": None, "jahresertrag_eur": None, "status": FEHLT}
     if not _positiv(investition):
         return erg | {"hinweis": "Die Investition fehlt. Ohne sie lässt sich keine Amortisation rechnen."}
     rest = max(investition - netto, 0.0)
@@ -323,4 +336,9 @@ def amortisation(zeilen: list[dict], saldo: dict, investition: Optional[float], 
         return erg | {"status": KEINE, "hinweis": "Bisher bringt der Ofen netto nichts ein. Bei diesen Werten gibt es keine Amortisation."}
     if not _positiv(jahreswaerme_kwh):
         return erg | {"status": WENIG, "hinweis": "Für die Prognose fehlt die erwartete Jahreswärme."}
-    return erg | {"status": PROGNOSE, "prognose_jahre": rest / (netto / waerme * jahreswaerme_kwh)}
+    jahresertrag = (einsparung - holz) / waerme * jahreswaerme_kwh - (laufende_kosten_jahr or 0.0)
+    erg |= {"jahresertrag_eur": jahresertrag}
+    if jahresertrag <= 0:
+        return erg | {"status": KEINE, "hinweis": "Die laufenden Kosten eines Jahres zehren den Ertrag auf. "
+                                                  "Bei diesen Werten gibt es keine Amortisation."}
+    return erg | {"status": PROGNOSE, "prognose_jahre": rest / jahresertrag}

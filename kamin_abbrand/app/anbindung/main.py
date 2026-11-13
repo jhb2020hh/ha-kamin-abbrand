@@ -55,6 +55,8 @@ from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GL
 
 log = logging.getLogger("kamin_abbrand")
 
+AUFLAGE_SPERRE_S = 600.0    # Tür öffnen so kurz nach einer Auflage ist Schüren, kein Nachlegen
+
 TAKT_PARITAET_S = 30.0
 TAKT_NEU_S = 5.0
 WACHE_INTERVALL_S = 1.0
@@ -160,6 +162,9 @@ class App:
         self.uebertemperatur = UebertempWaechter()
         self.buchfuehrung: Optional[Buchfuehrung] = (
             Buchfuehrung(speicher.pfad.parent / "wirtschaft.json", uhr) if speicher is not None else None)
+        # Nach dem Start gilt die Tür als geöffnet: Ein Neustart mitten im Anheizen verliert keine Auflage.
+        self._tuer_seit_auflage = True
+        self._letzte_auflage: Optional[float] = None
         self.steuerungen: dict[str, Any] = {}
         self._fehler: dict[str, str] = {}
         self._uebernommen = False
@@ -443,6 +448,7 @@ class App:
             live = self._wirklicher_zustand(jetzt)
             if regelstand == self.fuehrender_regelstand:
                 self._dauer_verfolgen(live or ergebnis.zustand, jetzt)
+                self._tuer_merken(eingaben.tuer_offen, jetzt)
             self.verlauf.schreiben(regelstand, eingaben, ergebnis, live=live,
                                    anzeige=self._anzeige())
             self.letzte[regelstand] = (ergebnis, jetzt)
@@ -469,7 +475,7 @@ class App:
                 if regelstand == self.fuehrender_regelstand:
                     self.meldungen.appendleft({"zeit": jetzt, "text": "{} → {}".format(*ergebnis.uebergang)})
                 if (regelstand == self.fuehrender_regelstand and ergebnis.uebergang == (ANHEIZEN, ABBRAND)
-                        and self.buchfuehrung is not None):
+                        and self.buchfuehrung is not None and self._auflage_erlaubt()):
                     self._auflage_buchen(jetzt)
                 if (regelstand == self.fuehrender_regelstand and ergebnis.uebergang[1] == GLUT
                         and self.speicher is not None and nachlegen_moeglich(self)):
@@ -1178,8 +1184,21 @@ class App:
 
     # ---- Kosten -------------------------------------------------------
 
+    def _tuer_merken(self, tuer_offen: bool, jetzt: float) -> None:
+        """Holz kommt nur durch die Tür. Kurz nach einer Auflage zählt das Öffnen nicht neu: Da wird geschürt."""
+        if tuer_offen and (self._letzte_auflage is None or jetzt - self._letzte_auflage >= AUFLAGE_SPERRE_S):
+            self._tuer_seit_auflage = True
+
+    def _auflage_erlaubt(self) -> bool:
+        """Mit Türkontakt nur, wenn die Tür seit der letzten Auflage offen war. Flammt die Glut von selbst
+        wieder auf (Ausbrand → Anheizen → Abbrand), ist kein Holz dazugekommen."""
+        mit_kontakt = self.tuerkontakt_vorhanden() and bool(self.speicher.rollen.get("tuer"))
+        return self._tuer_seit_auflage or not mit_kontakt
+
     def _auflage_buchen(self, jetzt: float) -> None:
-        """Eine Auflage ist der Übergang Anheizen → Abbrand des führenden Regelstands."""
+        """Eine Auflage ist der Übergang Anheizen → Abbrand des führenden Regelstands nach offener Tür."""
+        self._tuer_seit_auflage = False
+        self._letzte_auflage = jetzt
         try:
             self.buchfuehrung.auflage(jetzt, 1, self.speicher.anlagenprofil)
         except Exception:

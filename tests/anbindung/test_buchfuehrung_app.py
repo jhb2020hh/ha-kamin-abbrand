@@ -45,6 +45,36 @@ def test_auflage_zaehlt_im_betrieb_vom_neuen_regelstand():
     ablauf_mit(p, fabrik_mit(uebergang=ANHEIZEN_ABBRAND), {})
 
 
+def test_auflage_ohne_tueroeffnung_zaehlt_nicht_und_schueren_auch_nicht():
+    async def p(app, ha, s):
+        einrichten(s)
+        s.rollen_setzen(s.rollen | {"tuer": "binary_sensor.tuer"}, True)
+        zeit = [1_800_000_000.0]
+        app._uhr = lambda: zeit[0]
+        await lauf(app, (PARITAET,))
+        assert auflagen(app) == 1                        # nach dem Start gilt die Tür als geöffnet
+        zeit[0] += 1800
+        await lauf(app, (PARITAET,))
+        assert auflagen(app) == 1                        # Glut flammt auf, die Tür blieb zu: kein Holz
+        app._tuer_merken(True, zeit[0] - 1500)
+        await lauf(app, (PARITAET,))
+        assert auflagen(app) == 1                        # Tür 5 min nach der Auflage: geschürt
+        app._tuer_merken(True, zeit[0])
+        await lauf(app, (PARITAET,))
+        assert auflagen(app) == 2
+    ablauf_mit(p, fabrik_mit(uebergang=ANHEIZEN_ABBRAND), {})
+
+
+def test_ohne_tuerkontakt_zaehlt_jeder_uebergang():
+    async def p(app, ha, s):
+        einrichten(s)
+        s.rollen_setzen(s.rollen, False)
+        await lauf(app, (PARITAET,))
+        await lauf(app, (PARITAET,))
+        assert auflagen(app) == 2
+    ablauf_mit(p, fabrik_mit(uebergang=ANHEIZEN_ABBRAND), {})
+
+
 def test_andere_uebergaenge_sind_keine_auflage():
     async def p(app, ha, s):
         einrichten(s)

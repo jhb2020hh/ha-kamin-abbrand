@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2
+
+- Neu: Restlaufzeit bis zur Reinigung des Wärmetauschers. Die Startseite zeigt eine Kachel mit den verbleibenden Brennstunden, auch wenn die Reinigung noch nicht ansteht. In Home Assistant gibt es dazu `sensor.kamin_app_wt_reinigung_rest` in Stunden.
+- Behoben: Eine Auflage wurde auch gezählt, wenn die Glut von selbst wieder aufflammte (Ausbrand → Anheizen → Abbrand) oder die Tür kurz nach dem Nachlegen zum Schüren geöffnet wurde. Mit Türkontakt zählt eine Auflage jetzt nur, wenn die Tür seit der letzten Auflage offen war, und frühestens 10 min nach ihr. Ohne Türkontakt bleibt es beim Übergang Anheizen → Abbrand. Die Holzmenge war dadurch um rund 10–25 % zu hoch.
+- Behoben: Ein Tag galt als „gemessen“, auch wenn der Wärmemengenzähler nur einen Teil davon gesehen hat (spät zugewiesen, länger nicht lesbar). Die Kaminwärme war dann viel zu klein. Solche Tage werden jetzt aus dem Holz geschätzt.
+- Geändert: Fehlt ein Zählerwert länger als eine Stunde und kommt am selben Tag wieder, wird der Zuwachs gebucht statt verworfen. Nur wenn Mitternacht in der Lücke liegt, beginnt der Zähler neu.
+- Geändert: Die Prognose der Amortisation zieht die laufenden Kosten für ein ganzes Jahr ab, statt sie mit der Wärme hochzurechnen. Zehren sie den Jahresertrag auf, lautet das Urteil „keine Amortisation“.
+- Hinweis: „Verhältnis Raum- zu Wasserwärme“ und „Anteil Aufstellraum“ bestimmen, wie viel Kaminwärme aus dem Wärmemengenzähler wird. Passen sie nicht zur gemessenen Einsparung, stimmt die Prognose nicht. Prüfe sie nach den ersten Wochen: Einsparung in kWh × Nutzungsgrad der Heizung ÷ Wasserwärme − 1 ergibt das Produkt beider Werte.
+
 ## 0.4.1
 
 - Behoben: Im Betrieb konnte eine Automation in Home Assistant, die denselben Klappen-Helfer schreibt (z. B. die alte Phasensteuerung), die Klappe alle 30 s zurückstellen. Beim Einmessen pendelte die Klappe deshalb, statt auf 100 % zu bleiben.

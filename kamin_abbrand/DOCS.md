@@ -122,6 +122,7 @@ Die App kopiert beim Start die Integration nach `custom_components/kamin_abbrand
 | `sensor.kamin_app_p_signal`, `sensor.kamin_app_n_signal` | Signalzustand des Abgaswerts |
 | `sensor.kamin_app_status` | `start`, `wartet`, `ok`, `fehler` oder `gestoppt` |
 | `sensor.kamin_app_wt_reinigung` | `ok`, `faellig` oder `aus` |
+| `sensor.kamin_app_wt_reinigung_rest` | Brennstunden bis zur Reinigung des Wärmetauschers |
 | `sensor.kamin_app_wasser_status` | `ok`, `hinweis`, `warnung` oder `alarm`, Texte als Attribut |
 | `sensor.kamin_app_amortisation` | Amortisation |
 

@@ -2,10 +2,14 @@
 
 Die Rechnung steht in kern/wirtschaft.py. Hier wird gezählt und gespeichert:
 
-- Eine Auflage ist der Übergang Anheizen → Abbrand des führenden Regelstands (siehe main.py).
+- Eine Auflage ist der Übergang Anheizen → Abbrand des führenden Regelstands, mit Türkontakt nur
+  nach offener Tür (siehe main.py).
 - Zähler werden bei jedem Takt gelesen. Fällt ein Stand, beginnt ein neuer Bezug ohne Buchung.
-  Fehlt der Wert (unavailable), wird der Takt übersprungen. Nach mehr als einer Stunde ohne
-  Wert gilt ebenfalls ein neuer Bezug, denn die Lücke lässt sich keinem Tag zuordnen.
+  Fehlt der Wert (unavailable), wird der Takt übersprungen. Kommt er am selben Tag wieder, wird
+  der Zuwachs gebucht: Der Zähler hat ihn gezählt. Liegt Mitternacht in einer Lücke von mehr als
+  einer Stunde, beginnt ein neuer Bezug, denn der Zuwachs lässt sich keinem Tag zuordnen.
+- Der Wärmezähler gilt für einen Tag nur als Messung, wenn er ihn ganz gesehen hat. Fehlt ein Stück
+  (`waerme_luecke`) oder war er zu lange nicht lesbar (`waerme_s`), wird die Wärme aus dem Holz geschätzt.
 - Geld wird zum Preis des Tages gebucht. Spätere Preisänderungen berühren abgeschlossene Tage nie.
 """
 from __future__ import annotations
@@ -26,7 +30,7 @@ log = logging.getLogger(__name__)
 
 SPEICHER_INTERVALL_S = 300.0
 MAX_TAKT_S = 120.0          # Längere Abstände zählen nicht als erfasste Zeit
-MAX_LUECKE_S = 3600.0       # Danach beginnt ein Zähler neu
+MAX_LUECKE_S = 3600.0       # Über Mitternacht hinweg beginnt ein Zähler danach neu
 VERSION = 1
 
 # name: (minimum, maximum, Titel). Leer lassen ist erlaubt und heißt „nicht angegeben“.
@@ -73,7 +77,7 @@ def _zahl(roh: Any, minimum: float, maximum: float, titel: str) -> Optional[floa
 def _neue_zeile() -> dict:
     return {"auflagen": 0, "holz_kg": 0.0, "holz_eur": 0.0, "waerme_holz_kwh": 0.0, "waerme_zaehler_kwh": None,
             "verbrauch_kwh": None, "t_summe": 0.0, "t_s": 0.0, "s": 0.0, "laufend_eur": 0.0, "ohne_menge": False,
-            "final": False}
+            "waerme_s": 0.0, "waerme_luecke": False, "final": False}
 
 
 class Buchfuehrung:
@@ -115,6 +119,8 @@ class Buchfuehrung:
                         if isinstance(v, dict) and als_zahl(v.get("stand")) is not None and als_zahl(v.get("zeit")) is not None}
         self.letzte_zeit = als_zahl(daten.get("letzte_zeit"))
         for zeile in self.tage.values():
+            # Zeilen von vor 0.4.2 kennen die Abdeckung nicht. Sie gelten wie bisher als ganz erfasst.
+            zeile.setdefault("waerme_s", zeile.get("s", 0.0) if zeile.get("waerme_zaehler_kwh") is not None else 0.0)
             for name, vorgabe in _neue_zeile().items():
                 zeile.setdefault(name, vorgabe)
 
@@ -215,6 +221,10 @@ class Buchfuehrung:
         """Ein Takt: Zähler lesen, Zeit und Außentemperatur erfassen, den Tag vorläufig bewerten."""
         k = self.konfiguration(profil)
         tag = _tag(jetzt)
+        vorher = self.zaehler.get("waerme")
+        delta, luecke = self._delta("waerme", messung.waerme_kwh, jetzt)
+        if luecke and vorher is not None and (alt := self.tage.get(_tag(vorher["zeit"]))) is not None and not alt.get("final"):
+            alt["waerme_luecke"] = True     # vor dem Abschließen: Dem alten Tag fehlt sein Ende
         self._abschliessen(k, tag)
         zeile = self._zeile(tag, k)
         dt = 0.0 if self.letzte_zeit is None else min(max(jetzt - self.letzte_zeit, 0.0), MAX_TAKT_S)
@@ -223,24 +233,33 @@ class Buchfuehrung:
         if messung.t_aussen is not None and dt > 0:
             zeile["t_summe"] += messung.t_aussen * dt
             zeile["t_s"] += dt
-        delta = self._delta("waerme", messung.waerme_kwh, jetzt)
+        if messung.waerme_kwh is not None:
+            zeile["waerme_s"] += dt
+        if luecke:
+            zeile["waerme_luecke"] = True
         if delta is not None:
             zeile["waerme_zaehler_kwh"] = (zeile["waerme_zaehler_kwh"] or 0.0) + delta
-        deltas = [d for key, stand in messung.energie_kwh.items() if (d := self._delta(f"energie:{key}", stand, jetzt)) is not None]
+        deltas = [d for key, stand in messung.energie_kwh.items() if (d := self._delta(f"energie:{key}", stand, jetzt)[0]) is not None]
         if deltas:
             zeile["verbrauch_kwh"] = (zeile["verbrauch_kwh"] or 0.0) + sum(deltas)
         self._vorlaeufig(tag, k)
         self.sichern()
 
-    def _delta(self, schluessel: str, stand: Optional[float], jetzt: float) -> Optional[float]:
-        """Zuwachs seit dem letzten gültigen Stand, sonst None: kein Wert, neuer Bezug oder Lücke."""
+    def _delta(self, schluessel: str, stand: Optional[float], jetzt: float) -> tuple[Optional[float], bool]:
+        """(Zuwachs seit dem letzten gültigen Stand, Lücke). Ohne Wert oder bei neuem Bezug ist der Zuwachs None.
+
+        Lücke heißt: Den Tagen fehlt Energie, die der Zähler gezählt hat. Das ist so nach einer langen
+        Pause über Mitternacht, in der sich der Stand bewegt hat.
+        """
         if stand is None:
-            return None
+            return None, False
         alt = self.zaehler.get(schluessel)
         self.zaehler[schluessel] = {"stand": stand, "zeit": jetzt}
-        if alt is None or stand < alt["stand"] or jetzt - alt["zeit"] > MAX_LUECKE_S:
-            return None
-        return stand - alt["stand"]
+        if alt is None or stand < alt["stand"]:
+            return None, False
+        if jetzt - alt["zeit"] > MAX_LUECKE_S and _tag(alt["zeit"]) != _tag(jetzt):
+            return None, stand != alt["stand"]
+        return stand - alt["stand"], False
 
     def verwaiste_zaehler_entfernen(self, aktiv: set[str]) -> None:
         """Ein Zähler, der nicht mehr zugewiesen ist, beginnt bei erneuter Zuweisung neu."""
@@ -256,7 +275,8 @@ class Buchfuehrung:
         return [{"tag": tag, **zeile} for tag, zeile in sorted(self.tage.items())]
 
     def amortisation(self, profil: Anlagenprofil) -> dict:
-        return wirtschaft.amortisation(self.zeilen(profil), self.saldo, self.wert("investition"), self.wert("jahreswaerme_kwh"))
+        return wirtschaft.amortisation(self.zeilen(profil), self.saldo, self.wert("investition"), self.wert("jahreswaerme_kwh"),
+                                       self.wert("laufende_kosten_jahr") or 0.0)
 
     def referenz_vorschlag(self, profil: Anlagenprofil) -> wirtschaft.ReferenzVorschlag:
         """Aus eigenen, vollständig erfassten Tagen ohne Feuer."""

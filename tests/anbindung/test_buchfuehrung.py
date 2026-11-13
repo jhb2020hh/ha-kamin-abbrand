@@ -143,12 +143,59 @@ def test_unavailable_wird_uebersprungen_und_der_naechste_wert_schliesst_an(buch)
     assert zeile(buch, 9)["verbrauch_kwh"] == pytest.approx(3.0)
 
 
-def test_lange_luecke_beginnt_den_zaehler_neu(buch):
+def test_lange_luecke_am_selben_tag_wird_gebucht(buch):
     buch.tick(zeit(9, 8, 0), messung(100), PROFIL)
-    buch.tick(zeit(9, 10, 0), messung(160), PROFIL)           # zwei Stunden ohne Wert: nicht buchen
-    assert zeile(buch, 9)["verbrauch_kwh"] is None
-    buch.tick(zeit(9, 10, 1), messung(161), PROFIL)
-    assert zeile(buch, 9)["verbrauch_kwh"] == pytest.approx(1.0)
+    buch.tick(zeit(9, 10, 0), messung(160), PROFIL)           # zwei Stunden ohne Wert: Der Zähler hat sie gezählt
+    assert zeile(buch, 9)["verbrauch_kwh"] == pytest.approx(60.0)
+
+
+def test_lange_luecke_ueber_mitternacht_beginnt_den_zaehler_neu(buch):
+    buch.tick(zeit(9, 22, 0), messung(100), PROFIL)
+    buch.tick(zeit(10, 2, 0), messung(160), PROFIL)           # vier Stunden über Mitternacht: keinem Tag zuzuordnen
+    assert zeile(buch, 9)["verbrauch_kwh"] is None and zeile(buch, 10)["verbrauch_kwh"] is None
+    buch.tick(zeit(10, 2, 1), messung(161), PROFIL)
+    assert zeile(buch, 10)["verbrauch_kwh"] == pytest.approx(1.0)
+
+
+def test_waermezaehler_mit_luecke_ueber_mitternacht_gilt_an_beiden_tagen_nicht_als_messung(buch):
+    buch.auflage(zeit(9, 21, 0), 1, PROFIL)
+    buch.tick(zeit(9, 21, 59), messung(waerme=50.0), PROFIL)
+    buch.tick(zeit(9, 22, 0), messung(waerme=52.0), PROFIL)
+    buch.auflage(zeit(10, 2, 0), 1, PROFIL)
+    buch.tick(zeit(10, 2, 0), messung(waerme=60.0), PROFIL)   # 8 kWh fehlen beiden Tagen
+    buch.tick(zeit(10, 2, 1), messung(waerme=61.0), PROFIL)
+    buch.tick(zeit(11, 0, 1), messung(waerme=61.0), PROFIL)
+    for tag in (9, 10):
+        z = zeile(buch, tag)
+        assert z["waerme_luecke"] and z["waerme_art"] == "modell" and z["kaminwaerme_kwh"] == pytest.approx(16.0)
+
+
+def test_pause_ueber_mitternacht_ohne_zuwachs_ist_keine_luecke(buch):
+    buch.tick(zeit(9, 21, 59), messung(waerme=50.0), PROFIL)
+    buch.tick(zeit(9, 22, 0), messung(waerme=52.0), PROFIL)
+    buch.tick(zeit(10, 2, 0), messung(waerme=52.0), PROFIL)   # Der Ofen war kalt: Es fehlt nichts
+    assert not zeile(buch, 9)["waerme_luecke"] and zeile(buch, 9)["waerme_art"] == "gemessen"
+    assert not zeile(buch, 10)["waerme_luecke"]
+
+
+def test_spaet_zugewiesener_waermezaehler_gilt_nicht_als_messung(buch):
+    """Wie am 10.11.2026: Der Zähler kam erst abends dazu und sah nur einen Bruchteil des Tages."""
+    buch.auflage(zeit(9, 9, 0), 1, PROFIL)
+    for minute in range(0, 600):
+        buch.tick(zeit(9, 10, 0) + minute * 60, messung(), PROFIL)
+    buch.tick(zeit(9, 20, 0), messung(waerme=200.0), PROFIL)
+    buch.tick(zeit(9, 20, 1), messung(waerme=201.4), PROFIL)
+    z = zeile(buch, 9)
+    assert z["waerme_zaehler_kwh"] == pytest.approx(1.4) and z["waerme_s"] == 120
+    assert z["waerme_art"] == "modell" and z["kaminwaerme_kwh"] == pytest.approx(16.0)
+
+
+def test_alte_zeile_ohne_abdeckung_bleibt_gemessen(tmp_path):
+    pfad = tmp_path / "wirtschaft.json"
+    pfad.write_text(json.dumps({"version": 1, "tage": {"2026-11-08": {"waerme_zaehler_kwh": 10.0, "s": 86400.0}}}), encoding="utf-8")
+    b = MitUhr(pfad, Uhr(zeit(9)))
+    z = zeile(b, 8)
+    assert z["waerme_s"] == 86400.0 and z["waerme_art"] == "gemessen" and z["kaminwaerme_kwh"] == pytest.approx(12.8)
 
 
 def test_waermezaehler_und_erfasste_zeit(buch):
@@ -256,7 +303,7 @@ def test_eroeffnungssaldo_geht_in_die_amortisation(buch):
     buch.saldo_setzen({"einsparung_eur": 600, "holz_eur": 150, "kaminwaerme_kwh": 900})
     a = buch.amortisation(PROFIL)
     assert a["netto_eur"] == pytest.approx(450) and a["kaminwaerme_kwh"] == 900 and a["status"] == "prognose"
-    assert a["prognose_jahre"] == pytest.approx((5000 - 450) / (450 / 900 * 3000))
+    assert a["prognose_jahre"] == pytest.approx((5000 - 450) / (450 / 900 * 3000 - 365))     # 365 € laufende Kosten im Jahr
     with pytest.raises(EinstellungsFehler):
         buch.saldo_setzen({"holz_eur": -5})
     with pytest.raises(EinstellungsFehler):

@@ -86,6 +86,10 @@ class Schatten:
                                      if letzte_reinigung else None),
             }
         await self._setzen("sensor.kamin_app_wt_reinigung", wert, attribute, jetzt)
+        # Eigener Sensor für die Restlaufzeit: Ein Zahlenwert lässt sich in Home Assistant anzeigen und auswerten.
+        await self._setzen("sensor.kamin_app_wt_reinigung_rest", f"{status.rest_h:.1f}" if status.aktiv else "unknown", {
+            "friendly_name": "Kamin App Wärmetauscher Restlaufzeit", "icon": "mdi:timer-sand", "unit_of_measurement": "h",
+            "device_class": "duration", "state_class": "measurement"}, jetzt)
 
     async def wasser(self, ergebnis: Any, jetzt: float) -> None:
         """ok/hinweis/warnung/alarm, bei luftgeführtem Ofen „aus“. Die Texte stehen als Attribut."""

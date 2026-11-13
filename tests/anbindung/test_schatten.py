@@ -147,6 +147,10 @@ def test_sensor_reinigung_zustaende_und_attribute():
         await schatten.reinigung(wartung.pruefen(40 * 3600, stand, 100), None, JETZT)
         await schatten.reinigung(wartung.pruefen(100 * 3600, stand, 100), JETZT - 86400, JETZT + 1)
         await schatten.reinigung(wartung.pruefen(100 * 3600, stand, 0), None, JETZT + 2)
+        rest = [(w, a) for e, w, a in aufrufe if e == "sensor.kamin_app_wt_reinigung_rest"]
+        aufrufe = [x for x in aufrufe if x[0] != "sensor.kamin_app_wt_reinigung_rest"]
+        assert [w for w, _ in rest] == ["60.0", "0.0", "unknown"]
+        assert rest[0][1]["unit_of_measurement"] == "h" and rest[0][1]["device_class"] == "duration"
         assert [(e, w) for e, w, _ in aufrufe] == [("sensor.kamin_app_wt_reinigung", "ok"),
                                                    ("sensor.kamin_app_wt_reinigung", "faellig"),
                                                    ("sensor.kamin_app_wt_reinigung", "aus")]

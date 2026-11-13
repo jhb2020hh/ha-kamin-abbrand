@@ -269,6 +269,25 @@ def test_amortisation_prognose_rechnet_ist_netto_je_kwh_mal_jahreswaerme():
     assert a["prognose_jahre"] == pytest.approx(940 / 3000)
 
 
+def test_amortisation_prognose_zieht_laufende_kosten_fuer_ein_ganzes_jahr_ab():
+    # Ertrag 0,60 €/kWh × 5000 kWh = 3000 €/Jahr, davon gehen 600 € laufende Kosten ab. Die 2 € im Netto sind schon gebucht.
+    a = w.amortisation([tag(100, 80, 20, laufend=2.0)], {}, 1000, 5000, 600.0)
+    assert a["netto_eur"] == 58 and a["jahresertrag_eur"] == pytest.approx(2400)
+    assert a["prognose_jahre"] == pytest.approx(942 / 2400)
+
+
+def test_amortisation_laufende_kosten_ueber_dem_jahresertrag_heisst_keine_amortisation():
+    a = w.amortisation([tag(100, 80, 20)], {}, 1000, 500, 300.0)      # 300 € Ertrag, 300 € Kosten
+    assert a["status"] == w.KEINE and a["prognose_jahre"] is None and a["netto_eur"] == 60
+
+
+def test_zaehler_vollstaendig():
+    assert w.zaehler_vollstaendig({"waerme_zaehler_kwh": 5.0})                                   # alte Zeile
+    assert w.zaehler_vollstaendig({"waerme_s": 900.0, "s": 1000.0})
+    assert not w.zaehler_vollstaendig({"waerme_s": 899.0, "s": 1000.0})
+    assert not w.zaehler_vollstaendig({"waerme_s": 1000.0, "s": 1000.0, "waerme_luecke": True})
+
+
 @pytest.mark.parametrize("einsparung, holz, laufend", [(20, 20, 0), (10, 20, 0), (30, 20, 15)])
 def test_amortisation_netto_null_oder_negativ_heisst_keine_amortisation(einsparung, holz, laufend):
     a = w.amortisation([tag(100, einsparung, holz, laufend)], {}, 1000, 5000)
