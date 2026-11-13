@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- Neu: Die Seite „Verlauf“ lädt sich alle 10 s selbst neu, das Zeitfenster läuft also mit. Solange der Zeiger auf der Grafik steht, bleibt sie stehen, damit der abgelesene Wert nicht wegspringt.
+
 ## 0.4.2
 
 - Neu: Restlaufzeit bis zur Reinigung des Wärmetauschers. Die Startseite zeigt eine Kachel mit den verbleibenden Brennstunden, auch wenn die Reinigung noch nicht ansteht. In Home Assistant gibt es dazu `sensor.kamin_app_wt_reinigung_rest` in Stunden.

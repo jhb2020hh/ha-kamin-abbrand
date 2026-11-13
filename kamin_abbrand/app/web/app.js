@@ -367,6 +367,9 @@ function reihenTitel(d, r) {
   if (r.achse === "kw") return `${r.name} (${r.einheit}, bis ${zahl(kwGrenze(d))})`;
   return `${r.name} (${r.einheit})`;
 }
+// Lädt den offenen Verlauf neu, damit das Zeitfenster mitläuft; gesetzt von verlaufZeichnen.
+let verlaufNachfuehren = null;
+const VERLAUF_TAKT_MS = 10000;
 async function verlaufZeichnen() {
   const anzeige = h("b", {}, `${stunden} h`), flaeche = h("div", {}, h("p", { klasse: "leise" }, "Wird geladen …")), legende = h("div", { klasse: "legende", role: "group", "aria-label": "Linien ein- und ausschalten" });
   let daten = null;
@@ -378,10 +381,22 @@ async function verlaufZeichnen() {
         onclick: () => { if (verlaufAus.has(r.k)) verlaufAus.delete(r.k); else verlaufAus.add(r.k); verlaufAusMerken(); zeichnen(); } }, h("i", {}), reihenTitel(daten, r));
     }), h("span", {}, "Farbband: Phase"));
   };
-  const laden = async () => { try { daten = await api(`api/verlauf?stunden=${stunden}`); zeichnen(); } catch (f) { flaeche.replaceChildren(h("p", {}, f.message)); } };
+  // still = Nachführen im Hintergrund: nicht unter dem Zeiger wegzeichnen, bei einem Fehler die alte Grafik stehen lassen.
+  let anfrage = 0;
+  const laden = async (still = false) => {
+    const nr = ++anfrage;
+    try {
+      const neu = await api(`api/verlauf?stunden=${stunden}`);
+      if (nr !== anfrage || !flaeche.isConnected) return;
+      const tipp = flaeche.querySelector(".tipp");
+      if (still && tipp && tipp.style.display === "block") return;
+      daten = neu; zeichnen();
+    } catch (f) { if (!still && nr === anfrage) flaeche.replaceChildren(h("p", {}, f.message)); }
+  };
+  verlaufNachfuehren = () => laden(true);
   zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Verlauf")),
     h("div", { klasse: "karte" }, h("div", { klasse: "zeile" }, h("span", {}, "Zeitraum"), anzeige),
-      h("input", { type: "range", min: 1, max: 12, step: 1, value: stunden, "aria-label": "Zeitraum in Stunden", oninput: (e) => { stunden = +e.target.value; anzeige.textContent = `${stunden} h`; }, onchange: laden })),
+      h("input", { type: "range", min: 1, max: 12, step: 1, value: stunden, "aria-label": "Zeitraum in Stunden", oninput: (e) => { stunden = +e.target.value; anzeige.textContent = `${stunden} h`; }, onchange: () => laden() })),
     h("div", { klasse: "karte" }, flaeche, legende));
   laden();
 }
@@ -1075,4 +1090,6 @@ document.querySelectorAll(".navi button").forEach((b) => b.addEventListener("cli
 aktualisieren().finally(() => gehe(location.hash.slice(1) || "start"));
 // Im Hintergrund nicht abfragen; beim Zurückkehren sofort, damit eine abgelaufene Sitzung gleich erneuert wird.
 setInterval(() => { if (!document.hidden) aktualisieren(); }, 5000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) aktualisieren(); });
+const verlaufTakt = () => { if (!document.hidden && seite === "verlauf" && verlaufNachfuehren) verlaufNachfuehren(); };
+setInterval(verlaufTakt, VERLAUF_TAKT_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { aktualisieren(); verlaufTakt(); } });
