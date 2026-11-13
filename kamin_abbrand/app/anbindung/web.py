@@ -23,11 +23,12 @@ from anbindung.anlagenprofil import (Erzeuger, einheit_normal, fehlende_angaben,
 from anbindung.benachrichtigung import ARTEN, dienst_gueltig, geraete_aus_diensten, lesbarer_name
 from anbindung.bereitstellung import eigener_host
 from anbindung import ansicht
+from anbindung import einmessen as einmess
 from anbindung.ansicht import (AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_HA_TEXT, HAND_LAUSCHEN_TEXT,
                                QUITTIEREN_LAUSCHEN_TEXT)
 from anbindung.eingaenge import als_zahl
-from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, PARAMETER_THEMEN, REGLER_FELDER,
-                                     ROLLEN, EinstellungsFehler)
+from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, LEISTUNG_VORGABE, PARAMETER_THEMEN,
+                                     REGLER_FELDER, ROLLEN, EinstellungsFehler)
 from anbindung.ha_client import VerbindungWeg
 from kern import autotune
 from kern.typen import Parameter
@@ -91,6 +92,15 @@ class Webserver:
         r.add_post("/api/benachrichtigungen/test", self._benachrichtigung_test)
         r.add_post("/api/reinigung/bestaetigen", self._reinigung_bestaetigen)
         r.add_post("/api/betrieb", self._betrieb_setzen)
+        r.add_get("/api/einmessen", self._einmessen)
+        r.add_post("/api/einmessen/start", self._einmessen_start)
+        r.add_post("/api/einmessen/abbrechen", self._einmessen_abbrechen)
+        r.add_get("/api/einmessen/{kennung}", self._einmessen_detail)
+        r.add_post("/api/einmessen/{kennung}/punkte", self._einmessen_punkte)
+        r.add_post("/api/einmessen/{kennung}/punkte_zuruecksetzen", self._einmessen_punkte_zuruecksetzen)
+        r.add_post("/api/einmessen/{kennung}/massgeblich", self._einmessen_massgeblich)
+        r.add_post("/api/einmessen/{kennung}/loeschen", self._einmessen_loeschen)
+        r.add_post("/api/einmessen/{kennung}/uebernehmen", self._einmessen_uebernehmen)
         r.add_static("/statik/", STATIK)
         return anwendung
 
@@ -484,6 +494,119 @@ class Webserver:
             "port": self._ports[1],
         })
 
+    # ---- Einmessen ----------------------------------------------------
+
+    def _ablage(self) -> einmess.Ablage:
+        if self.app.einmess_ablage is None:
+            raise EinstellungsFehler("Ohne Einstellungen der App nicht möglich.")
+        return self.app.einmess_ablage
+
+    @staticmethod
+    def _kennung(anfrage: web.Request) -> str:
+        kennung = anfrage.match_info.get("kennung")
+        if not einmess.kennung_gueltig(kennung):
+            raise EinstellungsFehler("Diese Aufzeichnung gibt es nicht.")
+        return kennung
+
+    async def _einmessen_uebersicht(self) -> dict:
+        app = self.app
+        massgeblich = app.speicher.einmessen_massgeblich
+        koepfe = await asyncio.to_thread(self._ablage().liste)
+        grund = app.einmessen_hindernis()
+        return {
+            "laeuft": app.einmessen_laeuft(),
+            "liste": [einmess.kopf_zeigen(k, massgeblich, app.einmessen_laufend()) for k in koepfe],
+            "startbar": grund is None,
+            "startbar_grund": grund,
+            "push_geraet": bool(app.speicher.benachrichtigungen.get("einmessen")),
+            "max_zyklen": einmess.MAX_ZYKLEN,
+        }
+
+    async def _einmessen(self, _: web.Request) -> web.Response:
+        return web.json_response(await self._einmessen_uebersicht())
+
+    async def _einmessen_start(self, anfrage: web.Request) -> web.Response:
+        inhalt = await anfrage.json()
+        if not isinstance(inhalt, dict):
+            raise EinstellungsFehler("Die Anfrage ist ungültig.")
+        try:
+            await self.app.einmessen_starten(inhalt.get("zyklen"), inhalt.get("push", False), inhalt.get("notiz"))
+        except asyncio.TimeoutError:
+            raise EinstellungsFehler("Die App hat nicht rechtzeitig geantwortet, die Aufzeichnung läuft nicht.")
+        return web.json_response(await self._einmessen_uebersicht())
+
+    async def _einmessen_abbrechen(self, _: web.Request) -> web.Response:
+        try:
+            await self.app.einmessen_abbrechen()
+        except asyncio.TimeoutError:
+            raise EinstellungsFehler("Die App hat nicht rechtzeitig geantwortet.")
+        return web.json_response(await self._einmessen_uebersicht())
+
+    async def _einmessen_auswertung(self, kennung: str) -> dict:
+        app = self.app
+        app.parameter_neu_auffrischen()
+        parameter = dataclasses.replace(app.parameter_neu)      # Kopie für den Thread
+        ziele_alt = {f: app.speicher.wirksamer_eigener_wert(f) for f in LEISTUNG_VORGABE}
+        daten = await asyncio.to_thread(einmess.auswerten, self._ablage(), kennung, parameter, _GRENZEN, ziele_alt,
+                                        FELDER)
+        if daten is None:
+            raise EinstellungsFehler("Diese Aufzeichnung gibt es nicht.")
+        daten["kopf"] = einmess.kopf_zeigen(daten["kopf"], app.speicher.einmessen_massgeblich, app.einmessen_laufend())
+        return daten
+
+    async def _einmessen_detail(self, anfrage: web.Request) -> web.Response:
+        return web.json_response(await self._einmessen_auswertung(self._kennung(anfrage)))
+
+    async def _einmessen_punkte(self, anfrage: web.Request) -> web.Response:
+        kennung = self._kennung(anfrage)
+        inhalt = await anfrage.json()
+        if not isinstance(inhalt, dict):
+            raise EinstellungsFehler("Die Anfrage ist ungültig.")
+        await asyncio.to_thread(self._ablage().punkte_setzen, kennung, inhalt.get("punkte"))
+        return web.json_response(await self._einmessen_auswertung(kennung))
+
+    async def _einmessen_punkte_zuruecksetzen(self, anfrage: web.Request) -> web.Response:
+        kennung = self._kennung(anfrage)
+        await asyncio.to_thread(self._ablage().punkte_zuruecksetzen, kennung)
+        return web.json_response(await self._einmessen_auswertung(kennung))
+
+    async def _einmessen_massgeblich(self, anfrage: web.Request) -> web.Response:
+        kennung = self._kennung(anfrage)
+        if await asyncio.to_thread(self._ablage().kopf, kennung) is None:
+            raise EinstellungsFehler("Diese Aufzeichnung gibt es nicht.")
+        self.app.speicher.einmessen_massgeblich_setzen(kennung)
+        return web.json_response(await self._einmessen_uebersicht())
+
+    async def _einmessen_loeschen(self, anfrage: web.Request) -> web.Response:
+        kennung = self._kennung(anfrage)
+        laufend = self.app.einmessung
+        if laufend is not None and laufend.kennung == kennung:
+            raise EinstellungsFehler("Die laufende Aufzeichnung lässt sich nicht löschen. Bitte erst abbrechen.")
+        if not await asyncio.to_thread(self._ablage().loeschen, kennung):
+            raise EinstellungsFehler("Diese Aufzeichnung gibt es nicht.")
+        if self.app.speicher.einmessen_massgeblich == kennung:
+            # Genau eine bleibt maßgeblich: die neueste beendete, sonst keine.
+            laufend = self.app.einmessen_laufend()
+            beendet = [k for k in await asyncio.to_thread(self._ablage().liste)
+                       if k["ende"] is not None and k["id"] not in laufend]
+            self.app.speicher.einmessen_massgeblich_setzen(beendet[0]["id"] if beendet else None)
+        self.app.verlauf.aenderung(time.time(), "einmessen_geloescht", kennung, None)
+        return web.json_response(await self._einmessen_uebersicht())
+
+    async def _einmessen_uebernehmen(self, anfrage: web.Request) -> web.Response:
+        """Ein Vorschlag, auf demselben Weg wie /api/parameter (die Leistungsziele sind dort eigene Felder)."""
+        kennung = self._kennung(anfrage)
+        inhalt = await anfrage.json()
+        feld = inhalt.get("feld") if isinstance(inhalt, dict) else None
+        daten = await self._einmessen_auswertung(kennung)
+        if daten["kopf"]["ende"] is None:
+            raise EinstellungsFehler("Die Aufzeichnung läuft noch. Das geht erst nach ihrem Ende.")
+        vorschlag = next((v for v in daten["vorschlaege"] if v["feld"] == feld), None)
+        if vorschlag is None:
+            raise EinstellungsFehler("Für diesen Wert gibt es keinen Vorschlag.")
+        wert = self._setzen(feld, vorschlag["wert"])
+        return web.json_response({"feld": feld, "wert": wert, "titel": vorschlag["titel"]})
+
     # ---- Integration --------------------------------------------------
 
     async def _integration_zustand(self, _: web.Request) -> web.Response:
@@ -543,6 +666,7 @@ class Webserver:
         return web.json_response({"fehler": BETRIEB_NUR_HA_TEXT}, status=409)
 
 
+_GRENZEN = {name: (f.minimum, f.maximum, f.schritt) for name, f in FELDER.items()}
 _NUR_APP = {"kp": "regler_verstaerkung", "tn": "regler_nachstellzeit", "kd": "regler_vorhaltung"}
 _BEOBACHTUNG_GESPERRT = {"handbetrieb", "wartung", "klappe_manuell", "t_ziel", "fuehler_neustart", "quittieren"}
 _IM_BETRIEB_PARAMETER = ("klappe_manuell", "t_ziel")

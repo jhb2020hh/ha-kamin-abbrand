@@ -69,6 +69,7 @@ main { padding: 20px 24px 60px; max-width: 980px; width: 100% }
 .modus button { font: inherit; font-size: .88rem; padding: 6px 14px; background: none; color: var(--muted); border: 0; cursor: pointer }
 .modus button + button { border-left: 1px solid var(--line) }
 .modus button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600 }
+.ansicht-wahl { display: flex; justify-content: flex-end; margin-bottom: 10px }
 .zeile { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap }
 
 /* Bedienung */
@@ -169,3 +170,29 @@ button.klein { padding: 6px 10px; font-size: .84rem; margin-top: 6px }
 .matrix table.tage th:first-child .chip { display: inline-block; margin-left: 4px }
 .matrix table.tage td, .matrix table.tage thead th { font-size: .82rem; padding-left: 3px; padding-right: 3px }
 .vorschlagbox { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px }
+
+/* Einmessen */
+.karte.auffaellig { border-left: 4px solid var(--farbe, var(--akzent)) }
+.karte.auffaellig .status h2 { margin-bottom: 4px }
+.schritte { margin: 4px 0 10px 20px; padding: 0 } .schritte li { margin: 4px 0 }
+.einmess-zeile { padding: 10px 0; border-top: 1px solid var(--line) }
+.einmess-zeile .titelzeile { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center }
+.einmess-zeile .aktionen { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 6px }
+.einmess-zeile .aktionen button.klein { margin-top: 0 }
+.notiz { overflow-wrap: anywhere }
+.chip.massgeblich { color: var(--ok); border-color: var(--ok) }
+button.wahl[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; opacity: 1 }
+.punktwahl { display: flex; flex-wrap: wrap; gap: 6px }
+.punktwahl button { font: inherit; font-size: .84rem; color: inherit; background: none; border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; cursor: pointer }
+.punktwahl button i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 6px; vertical-align: -1px }
+.punktwahl button[aria-pressed="true"] { border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c); font-weight: 600 }
+.grafik.einmess svg { touch-action: pan-y; -webkit-user-select: none; user-select: none; cursor: crosshair }
+.grafik .punkt-griff { cursor: ew-resize }
+.grafik text.marke-text { font-size: 10px }
+.grafik text.punkt-text { font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round }
+.punkt-wahl-info { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px }
+.punkt-wahl-info button.klein { margin-top: 0 }
+.knopfzeile { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px }
+.vorschlag-zeile { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--line) }
+.vorschlag-zeile > div { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere }
+.vorschlag-zeile .wechsel { font-variant-numeric: tabular-nums }

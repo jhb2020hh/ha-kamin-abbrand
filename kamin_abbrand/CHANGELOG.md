@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Neu: Einmessen unter Einstellungen → Einmessen. Du startest eine Aufzeichnung, zündest dann an und regelst von Hand an den Ofenklappen, die App hält die Zuluftklappe auf 100 %. Nach dem gewählten Nachlegen (1–5, erkannt an der Türöffnung oder ohne Türkontakt am wieder steigenden Abgas) übernimmt die Automatik, die Aufzeichnung läuft still weiter, bis der Ofen kalt ist. Danach schlägt die App im Trend Punkte vor (Anheizen Max, Abbrand stabil, Bester Abbrand, Nachlegen/Glut, Abkühlen, von Hand: Zu heiß). Du verschiebst sie und übernimmst die daraus abgeleiteten Grenzwerte einzeln. Aufzeichnungen bleiben gespeichert und sind löschbar, eine ist maßgeblich. Nur im Betrieb. Während der Handregelung drosselt die App bei Übertemperatur nicht, sie meldet nur. Sie endet auch bei Abbrechen, ohne Feuer nach 60 min, bei kaltem Ofen, nach 8 h, beim Wechsel auf Lauschen und nach einem Neustart der App.
+- Neu: Nachrichtenart „Übertemperatur“ für Abgas und Wasser, im Lauschen wie im Betrieb. Die erste Warnung kommt nach 30 s (Abgas) bzw. 60 s (Wasser) über der Grenze, danach alle 5 min, bis der Wert wieder 10 K unter der Grenze ist. Dann kommt einmal „wieder normal“. Die beiden Automationen in Home Assistant, die das bisher meldeten, sind aus. Wichtig: Unter Benachrichtigungen ein Gerät zuordnen, sonst kommt nichts.
+- Neu: Nachrichtenart „Einmessen“, gesendet nur, wenn du sie beim Start der Aufzeichnung wählst.
+- Neu: Pumpe mit zwei Eingängen, „Pumpe Ein/Aus“ und „Pumpe Stellsignal“, sichtbar bei jedem wassergeführten Ofen. Ohne Ein/Aus gilt die Pumpe ab „Pumpe läuft ab“ (Anlage, Vorgabe 5 %) als laufend. Kachel auf der Startseite, Linie im Verlauf.
+- Startseite: Umschalter Einfach/Experte. Gradient, I-Anteil und T-Maximum Phase stehen nur noch unter Experte.
+
 ## 0.3.9
 
 - Neu: Fehler lassen sich im Betrieb von Hand quittieren, über die Karte „Fehler quittieren“ auf der Startseite oder den Knopf „Fehler quittieren“ der Integration. Ein Anheizfehler geht bei kaltem Ofen sofort in Standby, bei warmem Ofen in Ausbrand, Glut oder Abkühlen. Bisher musste man dafür 90 min warten. Eine Störung lässt sich quittieren, sobald der Fühler wieder frische Werte liefert. Eine Klappenstörung wird zurückgesetzt und meldet sich wieder, falls sie weiter besteht.

@@ -20,11 +20,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from anbindung.anlagenprofil import rolle_passt, zaehler_entitaeten, zaehler_nach_kwh
+from anbindung.anlagenprofil import PUMPE_ROLLEN, pumpe_laeuft, rolle_passt, zaehler_entitaeten, zaehler_nach_kwh
 from anbindung.ansicht import NACHLEGEN_TEXT, QUITTIEREN_LAUSCHEN_TEXT, nachlegen_moeglich
 from anbindung.ansicht import amortisation_zeigen as ansicht_amortisation
 from anbindung.ausgaenge import Ausgaenge, NEUSTART, zugewiesene_ausgaenge
 from anbindung.benachrichtigung import Benachrichtiger
+from anbindung import einmessen as einmess
 from anbindung.betrieb import Punkt, offene_punkte, zustand_laden, zustand_sichern
 from anbindung.bereitstellung import integration_bereitstellen
 from anbindung.buchfuehrung import Buchfuehrung, Messung
@@ -40,14 +41,16 @@ from anbindung.schatten import (
     Schatten,
     Verlauf,
 )
+from anbindung.uebertemperatur import UebertempWaechter, wasser_gueltig
 from anbindung.web import Webserver
 from kern import wartung
 from kern import wasser as kern_wasser
 from kern import abbrand_dauer
 from kern.wirtschaft import energie_nach_kwh, leistung_nach_kw
+from kern.einmessen import FERTIG, FEUER, KALT, KEIN_FEUER, NACHLEGEN, Ereignis
 from kern.phasen import TITEL_ANHEIZFEHLER, TITEL_STOERUNG
 from kern.signale import t_gueltig
-from kern.typen import (ABBRAND, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, NEU, PARITAET, QUITTIEREN, SENSOR_WEG, STANDBY, STOERUNG,
+from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, NEU, PARITAET, QUITTIEREN, SENSOR_WEG, STANDBY, STOERUNG,
                         TICK, Parameter, Zustand)
 
 log = logging.getLogger("kamin_abbrand")
@@ -66,6 +69,7 @@ _AUFTRAG = "_auftrag"
 BEDINGUNG_KARENZ_S = 30.0
 SICHER_TIMEOUT_S = 6.0          # Der Supervisor beendet nach 10 s hart
 RUECKFALL_OEFFNEN_S = 600.0     # So lange versucht die App nach einem Rückfall noch, die Klappe zu öffnen
+EINMESS_FEHLER_MAX = 3          # Fehler in Folge beim Einmessen, dann übernimmt die Automatik
 AUFTRAG_TIMEOUT_S = 20.0
 ZUSTAND_SICHERN_S = 30.0
 _BETRIEB_PHASEN = (ANHEIZEN, ABBRAND, AUSBRAND)
@@ -147,6 +151,7 @@ class App:
         self.wasserwache = kern_wasser.Wasserwache()
         self.wasser_ergebnis: Optional[kern_wasser.Ergebnis] = None
         self._wasser_gemeldet: dict[str, tuple[str, float]] = {}
+        self.uebertemperatur = UebertempWaechter()
         self.buchfuehrung: Optional[Buchfuehrung] = (
             Buchfuehrung(speicher.pfad.parent / "wirtschaft.json", uhr) if speicher is not None else None)
         self.steuerungen: dict[str, Any] = {}
@@ -167,6 +172,20 @@ class App:
         self._zustand_gesichert = 0.0
         self.rueckfall: Optional[dict] = None
         self._warteschlange: asyncio.Queue[tuple[str, tuple]] = asyncio.Queue()
+        self.einmess_ablage: Optional[einmess.Ablage] = (
+            einmess.Ablage(speicher.pfad.parent / einmess.ORDNER) if speicher is not None else None)
+        self.einmessung: Optional[einmess.Aufzeichnung] = None
+        self._einmess_fehler = 0
+        self._einmess_tuer_auf = False
+        self._einmess_tuer_gemeldet = False
+        self._einmess_abschluss: set[str] = set()
+        self._einmess_aufgaben: set[asyncio.Task] = set()
+        if self.einmess_ablage is not None:
+            # Keine Handregelung über einen Neustart hinweg: Was noch läuft, ist beendet.
+            try:
+                self.einmess_ablage.verwaiste_beenden()
+            except Exception:
+                log.exception("Laufende Aufzeichnungen nach dem Neustart nicht beendet")
         if speicher is not None and speicher.modus == BETRIEB:
             # Der gespeicherte Modus gilt erst nach der Prüfung im ersten Lauf (_betrieb_pruefen).
             log.warning("Neustart im Betrieb, die Bedingungen werden erneut geprüft")
@@ -188,6 +207,7 @@ class App:
         )
 
     async def _bei_ereignis(self, daten: dict) -> None:
+        self._einmessen_tuer(daten)
         for ausloeser in self.eingaenge.ereignis(daten, self._uhr()):
             self._warteschlange.put_nowait((ausloeser, BEIDE))
 
@@ -368,8 +388,9 @@ class App:
                 eingaben = dataclasses.replace(
                     eingaben, tuerkontakt_vorhanden=vorhanden,
                     tuer_offen=eingaben.tuer_offen if vorhanden else False,
-                    # Handbetrieb der App wirkt nur hier (Regelstand neu, nur im Betrieb).
-                    handbetrieb=eingaben.handbetrieb or self.hand_aktiv(jetzt),
+                    # Handbetrieb der App wirkt nur hier (Regelstand neu, nur im Betrieb). Beim Einmessen
+                    # hält das den I-Anteil an, die Phasen laufen weiter, gestellt wird in _stellen.
+                    handbetrieb=eingaben.handbetrieb or self.hand_aktiv(jetzt) or self.einmessen_handregelung,
                 )
             try:
                 ergebnis = steuerung.schritt(eingaben)
@@ -388,6 +409,8 @@ class App:
                     await self._zurueckfallen(f"Fehler im Regelkern: {fehler!r}")
                 continue
             self._fehler.pop(regelstand, None)
+            if regelstand == NEU and self._betrieb and self.einmessen_handregelung:
+                ergebnis = self._einmessen_ergebnis(steuerung, ergebnis)
             live = self._wirklicher_zustand(jetzt)
             if regelstand == self.fuehrender_regelstand:
                 self._dauer_verfolgen(live or ergebnis.zustand, jetzt)
@@ -397,6 +420,8 @@ class App:
             self.letzte_eingaben = eingaben
             if regelstand == NEU and self._betrieb:
                 await self._stellen(ergebnis, eingaben, jetzt)
+                if ausloeser == TICK and self.einmessung is not None:
+                    await self._einmessen_schritt(eingaben, ergebnis, jetzt)
             if regelstand == PARITAET and ausloeser == TICK:
                 self._betrieb_zaehlen(live or ergebnis.zustand, jetzt)
             for aktion in ergebnis.aktionen:
@@ -427,6 +452,7 @@ class App:
         await self._betrieb_pruefen(self._uhr())
         await self._wartung_pruefen(self._uhr())
         await self._wasser_pruefen(self._uhr())
+        self._uebertemperatur_pruefen(self._uhr())
         await self._wirtschaft_pruefen(self._uhr())
         await self._status_schreiben()
 
@@ -453,6 +479,10 @@ class App:
                 log.info("Anlaufschutz beendet (Phase %s, %s °C)", ergebnis.zustand.phase, eingaben.t)
             else:
                 soll = 100
+        if self.einmessen_handregelung:
+            # Einmessen: Geregelt wird von Hand an den Ofenklappen. Übertemperatur und heißes
+            # Wasser drosseln hier nicht, sie werden nur gemeldet (Wunsch des Nutzers).
+            soll = 100
         await self.ausgaenge.klappe(soll, jetzt)
         if eingaben.ausloeser == TICK:
             await self.ausgaenge.heartbeat(jetzt)
@@ -514,6 +544,7 @@ class App:
         else:
             self.client.betrieb_freigeben([klappe])
             self._oeffnen_bis = jetzt + RUECKFALL_OEFFNEN_S
+        self._einmessen_beenden(self._uhr(), einmess.ENDE_LAUSCHEN)
         return offen
 
     # ---- Handbetrieb -------------------------------------------------
@@ -530,6 +561,9 @@ class App:
             return None
         if not self._betrieb:
             raise EinstellungsFehler("Handbetrieb geht nur im Betrieb.")
+        if self.einmessen_handregelung:
+            raise EinstellungsFehler("Beim Einmessen steht die Klappe auf 100 %, geregelt wird an den Ofenklappen. "
+                                     "Handbetrieb geht erst danach.")
         war = self.speicher.hand_aktiv(jetzt)
         bis = self.speicher.hand_starten(jetzt, dauer_min)
         klappe = self.parameter_neu.klappe_manuell
@@ -560,6 +594,210 @@ class App:
             text = f"Handbetrieb nach {self.speicher.hand_dauer_min:.0f} min beendet, die Automatik übernimmt."
             self._hand_aus(jetzt, text)
             self.benachrichtiger.melden("betrieb", text)
+
+    # ---- Einmessen ----------------------------------------------------
+    # Grundsatz: Ein Fehler im Einmess-Code führt zur Automatik, nie zu einer festgehaltenen Klappe.
+
+    @property
+    def einmessen_handregelung(self) -> bool:
+        """Die App hält die Klappe auf 100 %, bis das N-te Nachlegen erkannt ist."""
+        return self.einmessung is not None and self.einmessung.handregelung
+
+    def einmessen_kurz(self, jetzt: Optional[float] = None) -> Optional[dict]:
+        if self.einmessung is None:
+            return None
+        return self.einmessung.kurz(self._uhr() if jetzt is None else jetzt)
+
+    def einmessen_laeuft(self, jetzt: Optional[float] = None) -> Optional[dict]:
+        if self.einmessung is None:
+            return None
+        return self.einmessung.zeigen(self._uhr() if jetzt is None else jetzt)
+
+    def einmessen_laufend(self) -> frozenset:
+        """Kennungen, die laufen oder gerade abgeschlossen werden (noch ohne Ende in der Datei)."""
+        laufend = set(self._einmess_abschluss)
+        if self.einmessung is not None:
+            laufend.add(self.einmessung.kennung)
+        return frozenset(laufend)
+
+    def einmessen_hindernis(self, jetzt: Optional[float] = None) -> Optional[str]:
+        """None, wenn eine Aufzeichnung starten darf, sonst der Grund für die Oberfläche.
+
+        Entscheidend ist die Abgastemperatur. Die Phase gilt nur, wenn es keinen gültigen Wert gibt."""
+        if self.einmess_ablage is None:
+            return "Ohne Einstellungen der App nicht möglich."
+        if self.einmessung is not None:
+            return "Es läuft schon eine Aufzeichnung."
+        if not self._betrieb:
+            return "Nur im Betrieb möglich. Bitte erst auf Betrieb schalten."
+        t = self.eingaenge.temperatur_c(self.speicher.rollen.get("abgas"))
+        if t_gueltig(t):
+            if t < self.parameter_neu.t_kalt:
+                return None
+            return f"Der Ofen ist noch warm ({t:.0f} °C). Einmessen beginnt mit kaltem Ofen."
+        neu = self.steuerungen.get(NEU)
+        if neu is not None and neu.zustand.phase in (STANDBY, ABKUEHLEN):
+            return None
+        return "Kein gültiger Abgaswert und der Ofen ist nicht aus. Einmessen beginnt mit kaltem Ofen."
+
+    async def einmessen_starten(self, zyklen: Any, push: Any, notiz: Any) -> None:
+        """Startet eine Aufzeichnung, zwischen zwei Regelläufen. EinstellungsFehler mit Grund, wenn nicht."""
+        n, push, notiz = einmess.start_pruefen(zyklen, push, notiz)
+
+        async def arbeit() -> None:
+            jetzt = self._uhr()
+            grund = self.einmessen_hindernis(jetzt)
+            if grund:
+                raise EinstellungsFehler(grund)
+            self._hand_aus(jetzt, "Handbetrieb beendet, das Einmessen beginnt.")
+            self.parameter_neu_auffrischen()
+            tuerkontakt = self.tuerkontakt_vorhanden() and bool(self.speicher.rollen.get("tuer"))
+            self.einmessung = einmess.Aufzeichnung.starten(self.einmess_ablage, jetzt, n, notiz, push, tuerkontakt,
+                                                           self.parameter_neu.t_kalt)
+            self._einmess_fehler = 0
+            self._einmess_tuer_auf = False
+            self._einmess_tuer_gemeldet = False
+            self.verlauf.aenderung(jetzt, "einmessen", None, {"id": self.einmessung.kennung, "n": n})
+            log.warning("Einmessen gestartet (%s, %d Nachlegezyklen), die Klappe bleibt auf 100 %%",
+                        self.einmessung.kennung, n)
+            self._einmessen_melden("Aufzeichnung gestartet, jetzt anzünden.", jetzt)
+        await self._ins_warteschlange(arbeit)
+
+    async def einmessen_abbrechen(self) -> None:
+        async def arbeit() -> None:
+            if self.einmessung is None:
+                raise EinstellungsFehler("Es läuft keine Aufzeichnung.")
+            self._einmessen_beenden(self._uhr(), einmess.ENDE_ABGEBROCHEN)
+        await self._ins_warteschlange(arbeit)
+
+    def _einmessen_melden(self, text: str, jetzt: float) -> None:
+        self.meldungen.appendleft({"zeit": jetzt, "text": f"Einmessen: {text}"})
+        if self.einmessung is not None and self.einmessung.kopf["push"]:
+            # Jede Nachricht kommt je Aufzeichnung einmal, die Entprellung würde die nächste verschlucken.
+            self.benachrichtiger.melden("einmessen", text, entprellen=False)
+
+    def _einmessen_tuer(self, daten: dict) -> None:
+        """Merkt sich jedes Öffnen der Tür. So zählt auch ein Öffnen, das zwischen zwei TICKs schon wieder zu ist."""
+        if self.einmessung is None or not self.eingaenge.ent.tuer or daten.get("entity_id") != self.eingaenge.ent.tuer:
+            return
+        if (daten.get("new_state") or {}).get("state") == "on":
+            self._einmess_tuer_auf = True
+
+    def _einmessen_ergebnis(self, steuerung: Any, ergebnis: Any) -> Any:
+        """Während der Handregelung steht die Klappe wirklich auf 100 %. Das gilt auch für den Zustand,
+        den die App veröffentlicht und sichert, und für den Kern: Nach der Übergabe schließt er von 100 % aus."""
+        steuerung.zustand.klappe_soll = 100
+        steuerung.zustand.klappe_genau = 100.0
+        return dataclasses.replace(ergebnis, klappe=100,
+                                   zustand=dataclasses.replace(ergebnis.zustand, klappe_soll=100, klappe_genau=100.0))
+
+    async def _einmessen_schritt(self, eingaben: Any, ergebnis: Any, jetzt: float) -> None:
+        """Eine Probe je TICK des Regelstands neu. Ein Fehler hier darf die Regelung nie stören:
+        Nach EINMESS_FEHLER_MAX Fehlern in Folge endet die Aufzeichnung und die Automatik übernimmt."""
+        aufzeichnung = self.einmessung
+        try:
+            gesendet = self.ausgaenge.gesendet
+            tuer = None
+            if aufzeichnung.kopf["tuerkontakt"]:
+                tuer = True if self._einmess_tuer_auf else eingaben.tuer_offen
+            self._einmess_tuer_auf = False
+            zeile = {"zeit": jetzt, "t": eingaben.t, "g": eingaben.g, "tuer": tuer,
+                     "klappe": gesendet if gesendet is not None else ergebnis.klappe,
+                     "twt": wasser_gueltig(eingaben.twt_roh), "pumpe": self._pumpe_prozent(),
+                     "phase": ergebnis.zustand.phase}
+            ereignis = aufzeichnung.schritt(zeile)
+            self._einmess_fehler = 0
+            if aufzeichnung.zaehler.tuer_ausgefallen and not self._einmess_tuer_gemeldet:
+                self._einmess_tuer_gemeldet = True
+                self._einmessen_melden("Der Türkontakt meldet nichts. Nachlegen wird jetzt am Temperaturverlauf "
+                                       "erkannt.", jetzt)
+            if ereignis is not None:
+                self._einmessen_ereignis(ereignis, jetzt)
+        except Exception:
+            self._einmess_fehler += 1
+            log.exception("Einmessen: Probe nicht verarbeitet (%d. Fehler in Folge)", self._einmess_fehler)
+            if self.einmessung is aufzeichnung and self._einmess_fehler >= EINMESS_FEHLER_MAX:
+                self._einmessen_beenden(jetzt, einmess.ENDE_FEHLER)
+        if self.einmessung is aufzeichnung and jetzt - aufzeichnung.kopf["start"] >= einmess.HOECHSTDAUER_S:
+            self._einmessen_beenden(jetzt, einmess.ENDE_HOECHSTDAUER)
+
+    def _einmessen_ereignis(self, ereignis: Ereignis, jetzt: float) -> None:
+        aufzeichnung = self.einmessung
+        log.info("Einmessen %s: %s (Zyklus %d)", aufzeichnung.kennung, ereignis.art, ereignis.zyklus)
+        if ereignis.art == FEUER:
+            self._einmessen_melden("Feuer erkannt.", jetzt)
+        elif ereignis.art == NACHLEGEN:
+            self._einmessen_melden(f"Nachlegen {aufzeichnung.zaehler.nachgelegt} von {aufzeichnung.kopf['n']} erkannt.",
+                                   jetzt)
+        elif ereignis.art == FERTIG:
+            self._einmessen_uebergeben()
+            self._einmessen_melden("Handregelung beendet, die Automatik übernimmt.", jetzt)
+        elif ereignis.art == KALT:
+            self._einmessen_beenden(jetzt, einmess.ENDE_KALT)
+        elif ereignis.art == KEIN_FEUER:
+            self._einmessen_beenden(jetzt, einmess.ENDE_KEIN_FEUER)
+
+    def _einmessen_uebergeben(self) -> None:
+        """Die Klappe steht wirklich auf 100 %. Von dort schließt der Kern mit seiner Schließrate,
+        statt auf seinen eigenen Wert aus der Handregelung zu springen. Der I-Anteil stand still."""
+        neu = self.steuerungen.get(NEU)
+        if neu is not None:
+            neu.zustand.klappe_soll = 100
+            neu.zustand.klappe_genau = 100.0
+
+    def _einmessen_beenden(self, jetzt: float, grund: str) -> None:
+        """Beendet die Aufzeichnung sofort: erst an die Automatik übergeben, dann melden. Ende schreiben,
+        Punkte vorschlagen, maßgeblich setzen und aufräumen laufen als Hintergrundaufgabe, der Regellauf
+        wartet nicht darauf."""
+        aufzeichnung = self.einmessung
+        if aufzeichnung is None:
+            return
+        try:
+            handregelung = aufzeichnung.handregelung
+            grund = aufzeichnung.grund_fuer(grund)
+            if handregelung:
+                self._einmessen_uebergeben()
+            text = f"Aufzeichnung beendet ({einmess.ENDE_TEXTE.get(grund, grund)})."
+            if handregelung:
+                text += " Die Automatik übernimmt."
+            self._einmessen_melden(text, jetzt)
+            self.verlauf.aenderung(jetzt, "einmessen", {"id": aufzeichnung.kennung}, {"ende_grund": grund})
+            log.warning("Einmessen %s beendet: %s", aufzeichnung.kennung, grund)
+        except Exception:
+            log.exception("Einmessen: Ende nicht sauber gemeldet")
+        finally:
+            self.einmessung = None
+            self._einmess_fehler = 0
+        self._einmess_abschluss.add(aufzeichnung.kennung)
+        try:
+            aufgabe = asyncio.get_running_loop().create_task(self._einmessen_abschliessen(aufzeichnung, jetzt, grund))
+        except RuntimeError:
+            self._einmess_abschluss.discard(aufzeichnung.kennung)
+            log.error("Einmessen %s: keine laufende Ereignisschleife, Ende nicht gespeichert", aufzeichnung.kennung)
+            return
+        self._einmess_aufgaben.add(aufgabe)
+        aufgabe.add_done_callback(self._einmess_aufgaben.discard)
+
+    async def _einmessen_abschliessen(self, aufzeichnung: einmess.Aufzeichnung, jetzt: float, grund: str) -> None:
+        try:
+            kopf, geschrieben = await asyncio.to_thread(aufzeichnung.beenden, jetzt, grund)
+            if not geschrieben:
+                log.error("Einmessen %s: Ende nicht gespeichert, die Liste zeigt sie als Fehler", kopf["id"])
+                return
+            massgeblich = self.speicher.einmessen_massgeblich
+            if massgeblich is None or await asyncio.to_thread(self.einmess_ablage.kopf, massgeblich) is None:
+                self.speicher.einmessen_massgeblich_setzen(kopf["id"])     # genau eine ist maßgeblich
+            schuetzen = {self.speicher.einmessen_massgeblich} | set(self.einmessen_laufend())
+            await asyncio.to_thread(self.einmess_ablage.aufraeumen, schuetzen)
+        except Exception:
+            log.exception("Einmessen %s: Abschluss fehlgeschlagen", aufzeichnung.kennung)
+        finally:
+            self._einmess_abschluss.discard(aufzeichnung.kennung)
+
+    async def einmessen_abwarten(self) -> None:
+        """Für Tests und das Beenden: wartet, bis alle Abschlüsse geschrieben sind."""
+        if self._einmess_aufgaben:
+            await asyncio.gather(*list(self._einmess_aufgaben), return_exceptions=True)
 
     async def _zurueckfallen(self, grund: str) -> None:
         log.error("Rückfall auf Lauschen: %s", grund)
@@ -696,11 +934,30 @@ class App:
     def _wasser_messwerte(self, phase: Optional[str]) -> kern_wasser.Messwerte:
         """Die App liest nur. Temperaturen in °C, ein Fühler ohne gültige Zahl bleibt None."""
         ein, rollen, profil = self.eingaenge, self.speicher.rollen, self.speicher.anlagenprofil
-        zugewiesen = frozenset(n for n in (*kern_wasser.TEMPERATUR_FUEHLER, "pumpe") if rollen.get(n) and rolle_passt(n, profil))
-        pumpe = {"on": True, "off": False}.get(ein.wert(rollen.get("pumpe")))
+        zugewiesen = frozenset(n for n in kern_wasser.TEMPERATUR_FUEHLER if rollen.get(n) and rolle_passt(n, profil))
+        if self.pumpe_zugewiesen():
+            zugewiesen |= {"pumpe"}
         return kern_wasser.Messwerte(
-            zugewiesen=zugewiesen, phase=phase, pumpe=pumpe,
+            zugewiesen=zugewiesen, phase=phase, pumpe=self.pumpe_laeuft(),
             **{n: ein.temperatur_c(rollen.get(n)) for n in kern_wasser.TEMPERATUR_FUEHLER})
+
+    def pumpe_zugewiesen(self) -> bool:
+        """Ein/Aus oder Stellsignal, passend zum Profil."""
+        rollen, profil = self.speicher.rollen, self.speicher.anlagenprofil
+        return any(rollen.get(r) and rolle_passt(r, profil) for r in PUMPE_ROLLEN)
+
+    def pumpe_stellsignal(self) -> Optional[float]:
+        """Stellsignal in %, None ohne Zuweisung oder Zahl."""
+        eid = self.speicher.rollen.get("pumpe_stellsignal")
+        if not eid or not rolle_passt("pumpe_stellsignal", self.speicher.anlagenprofil):
+            return None
+        return self.eingaenge.zahl(eid)
+
+    def pumpe_laeuft(self) -> Optional[bool]:
+        """Ein/Aus hat Vorrang. Sonst läuft die Pumpe ab der Schwelle im Anlagenprofil, sonst None."""
+        rollen, profil = self.speicher.rollen, self.speicher.anlagenprofil
+        ein_aus = rollen.get("pumpe") if rolle_passt("pumpe", profil) else None
+        return pumpe_laeuft(bool(ein_aus), self.eingaenge.wert(ein_aus), self.pumpe_stellsignal(), profil.pumpe_laeuft_ab)
 
     async def _wasser_pruefen(self, jetzt: float) -> None:
         """Wasserstatus für Start, Sensor und Push. Nur der führende Regelstand löst eine Nachricht aus."""
@@ -733,6 +990,30 @@ class App:
                 continue
             self._wasser_gemeldet[schluessel] = (befund.stufe, jetzt)
             self.benachrichtiger.melden(f"wasser_{befund.stufe}", befund.text)
+
+    def _uebertemperatur_pruefen(self, jetzt: float) -> None:
+        """Push bei Abgas oder Wasser über der Grenze, in Lauschen und Betrieb gleich.
+
+        Die Grenzen kommen aus parameter_neu, die ohne eigene Werte den Helfern folgen."""
+        eingaben = self.letzte_eingaben
+        if eingaben is None:
+            return
+        try:
+            self.parameter_neu_auffrischen()
+            p = self.parameter_neu
+            wasser = self.speicher is None or self.speicher.anlagenprofil.wassergefuehrt
+            meldungen = self.uebertemperatur.pruefen(
+                jetzt, t_abgas=eingaben.t, twt_roh=eingaben.twt_roh if wasser else None,
+                t_uebertemperatur=p.t_uebertemperatur, t_wasser_max=p.t_wasser_max,
+                klappe_uebertemperatur=p.klappe_uebertemperatur, klappe_wasser=p.klappe_wasser,
+                gedrosselt=not self.einmessen_handregelung)
+            for art, titel, text in meldungen:
+                log.warning("%s: %s", titel, text)
+                self.meldungen.appendleft({"zeit": jetzt, "text": text})
+                # Der Wächter taktet selbst, die Entprellung würde die Wiederholung verschlucken.
+                self.benachrichtiger.melden(art, text, titel, entprellen=False)
+        except Exception:
+            log.exception("Übertemperatur nicht geprüft")
 
     # ---- Kosten -------------------------------------------------------
 
@@ -791,7 +1072,16 @@ class App:
         return {"druck": self.eingaenge.zahl(rollen.get("druck")),
                 "klappe_ist": self.klappe_ist_prozent(rollen.get("klappe_ist")),
                 "ziel": parameter.t_ziel,
-                "leistung_kw": self._leistung_kw()}
+                "leistung_kw": self._leistung_kw(),
+                "pumpe": self._pumpe_prozent()}
+
+    def _pumpe_prozent(self) -> Optional[float]:
+        """Für die Verlaufsgrafik: das Stellsignal, ohne Stellsignal Ein/Aus als 100 oder 0 %."""
+        stellsignal = self.pumpe_stellsignal()
+        if stellsignal is not None:
+            return stellsignal
+        laeuft = self.pumpe_laeuft()
+        return None if laeuft is None else (100.0 if laeuft else 0.0)
 
     def _leistung_kw(self) -> Optional[float]:
         eid = self.speicher.rollen.get("waermeleistung")
@@ -924,6 +1214,11 @@ class App:
             await asyncio.gather(*aufgaben, return_exceptions=True)
             if self._betrieb or self._oeffnen_bis is not None:
                 await self._beim_beenden_sichern()
+            try:
+                async with asyncio.timeout(SICHER_TIMEOUT_S):
+                    await self.einmessen_abwarten()
+            except asyncio.TimeoutError:
+                log.error("Abschluss des Einmessens beim Beenden nicht fertig geworden")
             self.benachrichtiger.abbrechen()
             if self.buchfuehrung is not None:
                 self.buchfuehrung.sichern(True)

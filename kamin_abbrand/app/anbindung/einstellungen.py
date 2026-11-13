@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,6 +34,8 @@ OHNE_WATCHDOG = "ohne_watchdog"
 HAND_DAUERN_MIN = (15.0, 30.0, 60.0, 120.0)
 HAND_DAUER_VORGABE = 30.0
 _STELLGLIED = ("cover", "light", "number", "input_number")
+# Kennung einer Einmess-Aufzeichnung, zugleich ihr Dateiname: Datum_Uhrzeit, bei gleicher Minute -2, -3 …
+EINMESS_ID_MUSTER = re.compile(r"\d{4}-\d{2}-\d{2}_\d{4}(-\d{1,3})?")
 
 
 @dataclass(frozen=True)
@@ -64,8 +67,11 @@ ROLLEN: tuple[Rolle, ...] = (
           ("sensor",), einheit="°C", fahrenheit=True),
     Rolle("ruecklauf", "Rücklauf", "Wassertemperatur zurück zum Ofen. Zu kalt schadet dem Ofen.",
           ("sensor",), einheit="°C", fahrenheit=True),
-    Rolle("pumpe", "Pumpe", "Meldet, ob die Pumpe läuft. Die App liest das nur und schaltet sie nicht.",
+    Rolle("pumpe", "Pumpe Ein/Aus", "Meldet, ob die Pumpe läuft. Die App liest das nur und schaltet sie nicht.",
           ("binary_sensor", "switch", "input_boolean")),
+    Rolle("pumpe_stellsignal", "Pumpe Stellsignal",
+          "Stellsignal der Pumpe in %. Ist Ein/Aus leer, gilt die Pumpe ab der Schwelle unter Anlage als laufend.",
+          ("sensor",), einheiten=("%",)),
     Rolle("waermezaehler", "Wärmemengenzähler Energie",
           "Zählerstand der Wärme, die der Ofen ans Wasser abgibt, in Wh, kWh oder MWh. Damit wird die Kaminwärme gemessen statt geschätzt.",
           ("sensor",), einheiten=("Wh", "kWh", "MWh")),
@@ -106,7 +112,7 @@ ROLLEN_NACH_NAME = {r.schluessel: r for r in ROLLEN}
 _EINGANG_FELDER = ("abgas", "druck", "gradient", "t_max_3min", "tuer", "t_wt", "t_wt_anstieg",
                    "puffer_unten", "wartung", "handbetrieb", "can_alter")
 # Für Auswertungen mitgelesen, der Kern bekommt sie nicht.
-ZUSATZ_ROLLEN = ("vorlauf", "ruecklauf", "pumpe", "puffer_oben", "waermezaehler", "waermeleistung", "energiezaehler", "t_aussen", "lueftung")
+ZUSATZ_ROLLEN = ("vorlauf", "ruecklauf", "pumpe", "pumpe_stellsignal", "puffer_oben", "waermezaehler", "waermeleistung", "energiezaehler", "t_aussen", "lueftung")
 
 
 @dataclass(frozen=True)
@@ -213,12 +219,17 @@ def atomar_schreiben(pfad: Path, daten: Any) -> None:
     """Erst vollständig in eine Nebendatei, dann umbenennen. Ein Absturz lässt nie eine halbe Datei zurück."""
     pfad = Path(pfad)
     pfad.parent.mkdir(parents=True, exist_ok=True)
-    zwischen = pfad.with_suffix(".tmp")
-    with open(zwischen, "w", encoding="utf-8") as datei:
-        json.dump(daten, datei, ensure_ascii=False, indent=2)
-        datei.flush()
-        os.fsync(datei.fileno())
-    os.replace(zwischen, pfad)
+    # Eindeutiger Name: Zwei gleichzeitige Schreibvorgänge (Regellauf und Oberfläche) stören sich nicht.
+    zwischen = pfad.with_name(f"{pfad.stem}.{secrets.token_hex(6)}.tmp")
+    try:
+        with open(zwischen, "w", encoding="utf-8") as datei:
+            json.dump(daten, datei, ensure_ascii=False, indent=2)
+            datei.flush()
+            os.fsync(datei.fileno())
+        os.replace(zwischen, pfad)
+    except BaseException:
+        zwischen.unlink(missing_ok=True)
+        raise
 
 
 class Speicher:
@@ -273,6 +284,9 @@ class Speicher:
         daten["modus"] = BETRIEB if daten.get("modus") == BETRIEB else LAUSCHEN
         if not isinstance(daten.get("betrieb_bestaetigung"), dict):
             daten["betrieb_bestaetigung"] = {}
+        massgeblich = daten.get("einmessen_massgeblich")
+        daten["einmessen_massgeblich"] = (massgeblich if isinstance(massgeblich, str)
+                                          and EINMESS_ID_MUSTER.fullmatch(massgeblich) else None)
         daten.setdefault("token", secrets.token_urlsafe(32))
         daten.setdefault("anlagenprofil", self._profil_gespeichert(
             profil_aus_bestand(daten["rollen"], daten["tuerkontakt_vorhanden"])))
@@ -517,6 +531,21 @@ class Speicher:
         if self.daten["hand"]["bis"] is None:
             return
         self.daten["hand"]["bis"] = None
+        self.speichern()
+
+    # ---- Einmessen ------------------------------------------------------
+
+    @property
+    def einmessen_massgeblich(self) -> Optional[str]:
+        """Kennung der maßgeblichen Einmess-Aufzeichnung, nur eine Kennzeichnung."""
+        return self.daten["einmessen_massgeblich"]
+
+    def einmessen_massgeblich_setzen(self, kennung: Optional[str]) -> None:
+        if kennung is not None and (not isinstance(kennung, str) or not EINMESS_ID_MUSTER.fullmatch(kennung)):
+            raise EinstellungsFehler("Diese Aufzeichnung gibt es nicht.")
+        if self.daten["einmessen_massgeblich"] == kennung:
+            return
+        self.daten["einmessen_massgeblich"] = kennung
         self.speichern()
 
     def tuerkontakt_setzen(self, vorhanden: bool) -> None:

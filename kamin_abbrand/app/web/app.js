@@ -160,10 +160,32 @@ async function quittieren() {
   } catch (f) { melden(f); }
   aktualisieren();
 }
+// Ansicht der Startseite: Einfach zeigt das Wichtigste, Experte auch die Werte des Reglers.
+const ANSICHT_KEY = "kamin_ansicht";
+function ansichtLesen() {
+  try { return localStorage.getItem(ANSICHT_KEY) === "experte" ? "experte" : "einfach"; } catch (_) { return "einfach"; }
+}
+let ansicht = ansichtLesen();
+function ansichtWaehlen(neu) {
+  ansicht = neu;
+  try { localStorage.setItem(ANSICHT_KEY, neu); } catch (_) { /* Speicher gesperrt */ }
+  aktualisieren();
+}
+function ansichtUmschalter() {
+  return h("div", { klasse: "ansicht-wahl" }, h("div", { klasse: "modus", role: "group", "aria-label": "Ansicht" },
+    [["einfach", "Einfach"], ["experte", "Experte"]].map(([w, text]) => h("button", { type: "button", "aria-pressed": String(ansicht === w), onclick: () => ansicht !== w && ansichtWaehlen(w) }, text))));
+}
+function pumpeKarte(s) {
+  if (s.pumpe === null && s.pumpe_stellsignal === null) return null;
+  const lauf = s.pumpe === null ? null : s.pumpe ? "läuft" : "steht";
+  if (s.pumpe_stellsignal === null) return wertKarte("Pumpe", lauf, "");
+  return wertKarte("Pumpe", zahl(s.pumpe_stellsignal, 1), "%", lauf, s.pumpe_stellsignal);
+}
 async function leistungWaehlen(modus) {
   try { const d = await api("api/leistung", { modus }); toast(`Leistung ${modus}: Ziel ${zahl(d.ziel)} °C`); aktualisieren(); } catch (f) { melden(f); }
 }
 function startZeichnen(s) {
+  const experte = ansicht === "experte";
   const f = `var(${STIL_FARBE[s.stil] || "--standby"})`;
   const karte = h("div", { klasse: "karte", stil: `--farbe:${f}` },
     h("div", { klasse: "status" },
@@ -181,8 +203,10 @@ function startZeichnen(s) {
     s.zug !== null && wertKarte("Kaminzug", zahl(s.zug, 1), "Pa"),
     s.twt !== null && wertKarte("Wärmetauscher", zahl(s.twt, 1), "°C"),
     s.puffer_unten !== null && wertKarte("Puffer unten", zahl(s.puffer_unten, 1), "°C"),
-    s.gradient !== null && s.gradient !== undefined && wertKarte("Gradient", zahl(s.gradient, 1), "K/min", s.i_anteil !== null ? `I-Anteil ${zahl(s.i_anteil, 1)} %` : null),
-    s.feuer && s.t_maximum !== null && wertKarte("T-Maximum Phase", zahl(s.t_maximum), "°C", s.phase_seit !== null ? `Phase seit ${new Date(s.phase_seit * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr` : null));
+    pumpeKarte(s),
+    experte && s.gradient !== null && s.gradient !== undefined && wertKarte("Gradient", zahl(s.gradient, 1), "K/min"),
+    experte && s.i_anteil !== null && wertKarte("I-Anteil", zahl(s.i_anteil, 1), "%", "Integralanteil des Reglers"),
+    experte && s.feuer && s.t_maximum !== null && wertKarte("T-Maximum Phase", zahl(s.t_maximum), "°C", s.phase_seit !== null ? `Phase seit ${new Date(s.phase_seit * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr` : null));
 
   const ad = s.abbrand_dauer;
   const kennzahl = (titel, wert) => h("div", {}, h("div", { klasse: "etikett" }, titel), h("b", {}, wert));
@@ -244,7 +268,7 @@ function startZeichnen(s) {
   const einrichtung = s.einrichtung.length > 0 && h("div", { klasse: "karte" }, h("h2", {}, "Einrichtung noch nicht fertig"),
     h("p", { klasse: "leise" }, `${s.einrichtung.length === 1 ? "Eine Angabe fehlt" : `${s.einrichtung.length} Angaben fehlen`} noch. Ofenart, Puffer und Wärmeerzeuger stehen unter Anlage, die Sensoren unter Ein-/Ausgänge.`),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "textknopf", onclick: () => gehe("anlage") }, "Zur Anlage"), " ", h("button", { klasse: "textknopf", onclick: () => gehe("eingaenge") }, "Zu den Ein-/Ausgängen")));
-  zeige(...[fehlt, einrichtung, fehlerKarte, klappeWarnung, wasser, reinigung, leistungKarte, betriebKarte(s), karte, werte, dauerKarte, band, handKarte(s)].filter(Boolean));
+  zeige(...[ansichtUmschalter(), einmessenStartKarte(s), fehlt,einrichtung, fehlerKarte, klappeWarnung, wasser, reinigung, leistungKarte, betriebKarte(s), karte, werte, dauerKarte, band, handKarte(s)].filter(Boolean));
 }
 
 // ---- Verlauf -----------------------------------------------------------
@@ -257,6 +281,7 @@ const REIHEN = [
   { k: "klappe_ist", name: "Klappe Ist", einheit: "%", farbe: "--blau", achse: "k", breite: 1.2, strich: "3 3" },
   { k: "zug", name: "Kaminzug", einheit: "Pa", farbe: "--ok", achse: "zug", breite: 1.2, stellen: 1 },
   { k: "leistung", name: "Wärmeleistung", einheit: "kW", farbe: "--glut", achse: "kw", breite: 1.8, stellen: 1 },
+  { k: "pumpe", name: "Pumpe", einheit: "%", farbe: "--anheizen", achse: "k", breite: 1.2, stellen: 1 },
 ];
 const VERLAUF_AUS_KEY = "kamin.verlauf.aus";
 function verlaufAusLesen() {
@@ -269,13 +294,15 @@ const reihenWerte = (d, k) => (d[k] || []).filter((v) => v !== null && v !== und
 const reiheAn = (d, r) => !verlaufAus.has(r.k) && reihenWerte(d, r.k).length > 0;
 const zugGrenze = (d) => Math.max(10, ...reihenWerte(d, "zug"));
 const kwGrenze = (d) => Math.max(5, ...reihenWerte(d, "leistung"));
-function grafik(d) {
-  const B = 860, H = 340, L = 44, R = 40, O = 12, U = 44;
+// Optionen o (alle frei): reihen statt der Auswahl im Verlauf, breite/hoehe der viewBox, tuer (schmales Band aus d.tuer),
+// marker [{zeit, text, titel}] als dünne senkrechte Striche, zusatz(g) zeichnet eigene Ebenen, klasse für den Rahmen.
+function grafik(d, o = {}) {
+  const B = o.breite || 860, H = o.hoehe || 340, L = 44, R = 40, O = 12, U = 44 + (o.tuer ? 8 : 0);
   const breit = B - L - R, hoch = H - O - U;
   const n = d.zeit.length;
   if (n < 2) return h("p", { klasse: "leise" }, "Für diesen Zeitraum liegen noch keine Daten vor.");
   const z0 = d.zeit[0], z1 = d.zeit[n - 1], x = (z) => L + (z - z0) / Math.max(z1 - z0, 1) * breit;
-  const an = REIHEN.filter((r) => reiheAn(d, r));
+  const an = o.reihen || REIHEN.filter((r) => reiheAn(d, r));
   const tMax = Math.max(100, ...an.filter((r) => r.achse === "t").flatMap((r) => reihenWerte(d, r.k))) * 1.08;
   const skala = (grenze) => (v) => O + hoch - v / grenze * hoch;
   const achsen = { t: skala(tMax), k: skala(100), zug: skala(zugGrenze(d)), kw: skala(kwGrenze(d)) };
@@ -295,6 +322,19 @@ function grafik(d) {
     svg.append(s("rect", { x: x(d.zeit[start]), y: O + hoch + 6, width: Math.max(x(d.zeit[Math.min(i, n - 1)]) - x(d.zeit[start]), 1), height: 10, fill: farbe(PHASE_FARBE[d.phase[start]] || "--standby") }));
     start = i;
   }
+  // Tür offen als schmales Band unter dem Phasenband
+  if (o.tuer && d.tuer) for (let i = 0; i < n; i++) if (d.tuer[i] === 1 && (i === 0 || d.tuer[i - 1] !== 1)) {
+    let j = i; while (j + 1 < n && d.tuer[j + 1] === 1) j++;
+    svg.append(s("rect", { x: x(d.zeit[i]), y: O + hoch + 19, width: Math.max(x(d.zeit[Math.min(j + 1, n - 1)]) - x(d.zeit[i]), 1), height: 5, fill: farbe("--tuer") }));
+  }
+  for (const m of o.marker || []) {
+    if (m.zeit < z0 || m.zeit > z1) continue;
+    const xm = x(m.zeit), y0 = O + hoch - 4, g = s("g", {});
+    g.append(s("line", { x1: xm, x2: xm, y1: O, y2: O + hoch, stroke: farbe("--muted"), "stroke-width": 1, "stroke-dasharray": "2 3", opacity: 0.8 }));
+    if (m.text) g.append(s("text", { x: xm, y: y0 + 10, transform: `rotate(-90 ${xm.toFixed(1)} ${y0})`, class: "marke-text" }, m.text));
+    if (m.titel) g.append(s("title", {}, m.titel));
+    svg.append(g);
+  }
   const linie = (r) => {
     const y = achsen[r.achse];
     let p = "", neu = true;
@@ -304,10 +344,13 @@ function grafik(d) {
     svg.append(s("path", a));
   };
   [...an].reverse().forEach(linie);
-  const marke = s("line", { y1: O, y2: O + hoch, stroke: farbe("--muted"), visibility: "hidden" }); svg.append(marke);
-  const tipp = h("div", { klasse: "tipp" }), rahmen = h("div", { klasse: "grafik" }, svg, tipp);
+  // Zeit unter dem Zeiger, auf den Zeitraum begrenzt
+  const zeitAus = (clientX) => { const r = svg.getBoundingClientRect(), z = z0 + ((clientX - r.left) / r.width * B - L) / breit * (z1 - z0); return Math.min(Math.max(z, z0), z1); };
+  if (o.zusatz) o.zusatz({ svg, s, x, achsen, O, hoch, L, B, z0, z1, zeitAus });
+  const marke = s("line", { y1: O, y2: O + hoch, stroke: farbe("--muted"), visibility: "hidden", "pointer-events": "none" }); svg.append(marke);
+  const tipp = h("div", { klasse: "tipp" }), rahmen = h("div", { klasse: "grafik" + (o.klasse ? " " + o.klasse : "") }, svg, tipp);
   svg.addEventListener("pointermove", (e) => {
-    const r = svg.getBoundingClientRect(), mx = (e.clientX - r.left) / r.width * B, z = z0 + (mx - L) / breit * (z1 - z0);
+    const r = svg.getBoundingClientRect(), z = zeitAus(e.clientX);
     let i = d.zeit.findIndex((w) => w >= z); if (i < 0) i = n - 1;
     marke.setAttribute("x1", x(d.zeit[i])); marke.setAttribute("x2", x(d.zeit[i])); marke.setAttribute("visibility", "visible");
     const teile = an.filter((q) => d[q.k][i] !== null && d[q.k][i] !== undefined).map((q) => `${q.name} ${zahl(d[q.k][i], q.stellen || 0)} ${q.einheit}`);
@@ -534,7 +577,8 @@ async function anlageZeichnen() {
         h("div", { klasse: "angaben", stil: "margin:0 0 12px" },
           angabe("Währungszeichen", h("input", { type: "text", maxLength: 5, value: p.waehrung, "aria-label": "Währungszeichen", oninput: (e) => { p.waehrung = e.target.value; }, onchange: neu }))),
         wasser && jaNein(p, "puffer", "Es gibt einen Pufferspeicher", "Dann lassen sich die Speicherfühler zuweisen.", neu),
-        wasser && jaNein(p, "pumpe_extern", "Eine eigene Regelung schaltet die Pumpe", "Die App liest nur mit, ob die Pumpe läuft.", neu),
+        wasser && jaNein(p, "pumpe_extern", "Eine eigene Regelung schaltet die Pumpe", "Nur zur Info. Die App liest nur mit, ob die Pumpe läuft.", neu),
+        wasser && h("div", { klasse: "angaben", stil: "margin:0 0 12px" }, zahlAngabe(p, "pumpe_laeuft_ab", "Pumpe läuft ab (Stellsignal)", "%", "5")),
         jaNein(p, "klappe_motorisiert", "Die Luftklappe hat einen Motor", "Ohne Motor entfallen Klappenstellung, Wartung und Handbetrieb.", neu),
         p.klappe_motorisiert && jaNein(p, "klappe_invertiert", "Klappe invertiert", "Der Antrieb schließt bei hohem Signal. Falsch eingestellt schließt die Klappe, wenn sie öffnen soll. Gibt es den Helfer der Automation, gilt dessen Wert.", neu),
         p.klappe_motorisiert && h("div", { klasse: "angaben", stil: "margin:0 0 12px" }, zahlAngabe(p, "klappe_y0", "Startspannung bei einer Ausgabe als Licht (z. B. 2 bei 2-10-V-Antrieb)", "V", "0")),
@@ -689,17 +733,331 @@ async function serviceZeichnen() {
     h("div", { klasse: "karte" }, h("h2", {}, "Letzte Änderungen"), d.aenderungen.length ? d.aenderungen.map((m) => h("div", { klasse: "meldung" }, h("time", {}, uhr(m.zeit)), `${m.was}: ${typeof m.neu === "object" && m.neu !== null ? "geändert" : `${m.alt ?? "Automation"} → ${m.neu ?? "Automation"}`}`)) : h("p", { klasse: "leise" }, "Noch keine Änderungen.")));
 }
 
+// ---- Einmessen: reine Hilfsfunktionen (ohne DOM) ----
+// Zyklus 1 beginnt mit dem ersten FEUER, nach jedem NACHLEGEN zählt er eins weiter. Vor dem Feuer gilt Zyklus 1.
+function zyklusAus(ereignisse, zeit) {
+  const art = (e) => String(e.art || "").toUpperCase();
+  let feuer = null;
+  for (const e of ereignisse || []) if (art(e) === "FEUER" && (feuer === null || e.zeit < feuer)) feuer = e.zeit;
+  if (feuer === null) return 1;
+  let zyklus = 1;
+  for (const e of ereignisse) if (art(e) === "NACHLEGEN" && e.zeit > feuer && e.zeit <= zeit) zyklus++;
+  return zyklus;
+}
+const nachZeit = (a, b) => a.zeit - b.zeit;
+// Je Art und Zyklus gibt es höchstens einen Punkt: Setzen ersetzt ihn, Verschieben in einen anderen Zyklus verdrängt den dortigen.
+function punktSetzen(punkte, art, zeit, zyklus) {
+  const punkt = { art, zeit: Math.round(zeit), zyklus, auto: false };
+  return { punkte: [...punkte.filter((p) => !(p.art === art && p.zyklus === zyklus)), punkt].sort(nachZeit), punkt };
+}
+function punktVerschieben(punkte, alt, zeit, zyklus) {
+  const punkt = { ...alt, zeit: Math.round(zeit), zyklus, auto: false };
+  return { punkte: [...punkte.filter((p) => p !== alt && !(p.art === alt.art && p.zyklus === zyklus)), punkt].sort(nachZeit), punkt };
+}
+const punktEntfernen = (punkte, punkt) => punkte.filter((p) => p !== punkt);
+const punkteFuerServer = (punkte) => punkte.map(({ art, zeit, zyklus }) => ({ art, zeit, zyklus }));
+function naechsterIndex(zeiten, z) {
+  if (!zeiten || zeiten.length === 0) return -1;
+  let a = 0, b = zeiten.length - 1;
+  while (b - a > 1) { const m = (a + b) >> 1; if (zeiten[m] <= z) a = m; else b = m; }
+  return Math.abs(zeiten[a] - z) <= Math.abs(zeiten[b] - z) ? a : b;
+}
+function ereignisKurz(e) {
+  const t = String(e.text || e.art || "").trim();
+  return t.length > 18 ? t.slice(0, 17) + "…" : t;
+}
+// Beschriftungen [{von, bis}] (x-Bereich) auf Zeilen verteilen, damit sie sich nicht überdecken. Liefert die Zeile je Eintrag.
+function zeilenVerteilen(bereiche, maxZeilen = 6) {
+  const enden = [], zeilen = new Array(bereiche.length);
+  bereiche.map((b, i) => [b, i]).sort((a, b) => a[0].von - b[0].von).forEach(([b, i]) => {
+    let z = enden.findIndex((e) => e + 4 <= b.von);
+    if (z < 0) z = enden.length < maxZeilen ? enden.length : enden.indexOf(Math.min(...enden));
+    enden[z] = b.bis; zeilen[i] = z;
+  });
+  return zeilen;
+}
+// Zeit auf ganze Sekunden innerhalb [von, bis] der Aufzeichnung; die Rundung bleibt in den Grenzen.
+function zeitKlemmen(z, von, bis) {
+  const unten = Math.ceil(von), oben = Math.max(Math.floor(bis), unten);
+  return Math.min(Math.max(Math.round(z), unten), oben);
+}
+const wertText = (w) => w === null || w === undefined ? "–" : Number(w).toLocaleString("de-DE", { maximumFractionDigits: 2 });
+// ---- Einmessen: Seite ----
+const PUNKT_FARBE = { anheizen_max: "--nachlegen", abbrand_stabil: "--wartung", bester_abbrand: "--abbrand", glut: "--glut", abkuehlen: "--abkuehlen", zu_heiss: "--fehler" };
+const punktFarbe = (art) => `var(${PUNKT_FARBE[art] || "--akzent"})`;
+const EINMESS_REIHEN = ["t", "klappe", "twt", "pumpe"];
+let einmessenOffen = null;        // id der geöffneten Aufzeichnung, null = Übersicht
+let einmessenGeaendert = false;   // ungespeicherte Punkte in der Detailansicht
+let einmessenStand = 0;           // wann die Übersicht zuletzt gezeichnet wurde
+let einmessenAngezeigt = null;    // { laeuft, modus } der gezeichneten Übersicht
+const einmessenEntwurf = { zyklen: 3, push: null, notiz: "" };
+const uhrzeit = (z) => new Date(z * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+const wartetAufFeuer = (e) => !e.nachlauf && e.zyklus === 0;
+function einmessenSatz(e) {
+  if (wartetAufFeuer(e)) return "Zünde jetzt an. Die Klappe steht auf 100 %.";
+  if (e.nachlauf) return "Die Automatik regelt wieder. Die Aufzeichnung läuft bis der Ofen kalt ist.";
+  if (e.handregelung) return "Regle jetzt von Hand an den Ofenklappen.";
+  return "Zünde jetzt an. Die Klappe steht auf 100 %.";
+}
+function einmessenStartKarte(s) {
+  const e = s.einmessen;
+  if (!e) return null;
+  return h("div", { klasse: "karte auffaellig", stil: "--farbe:var(--nachlegen)" },
+    h("div", { klasse: "status" }, h("div", { klasse: "punkt blinkt" }),
+      h("div", { stil: "min-width:0" }, h("h2", {}, e.nachlauf ? "Einmessen läuft – Nachlauf" : wartetAufFeuer(e) ? "Einmessen läuft – wartet auf Feuer" : `Einmessen läuft – Zyklus ${e.zyklus}/${e.n}`),
+        h("div", {}, einmessenSatz(e)),
+        h("div", { klasse: "leise" }, `${e.nachgelegt} von ${e.n} nachgelegt · seit ${dauer(e.seit_s)}`))),
+    h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: () => gehe("einmessen") }, "Zum Einmessen")));
+}
+async function einmessenAbbrechen(l) {
+  if (!confirm(l.nachlauf ? "Aufzeichnung jetzt beenden?" : "Aufzeichnung abbrechen? Die Automatik übernimmt dann wieder die Klappe.")) return;
+  try { const d = await api("api/einmessen/abbrechen", {}); toast("Aufzeichnung abgebrochen."); einmessenZeichnen(d); } catch (f) { melden(f); }
+}
+function einmessenLaufKarte(l) {
+  const zeile = l.nachlauf ? `Nachlauf · ${l.nachgelegt} von ${l.n} nachgelegt · seit ${dauer(l.seit_s)}`
+    : wartetAufFeuer(l) ? `Wartet auf Feuer · ${l.n} Nachlegezyklen · seit ${dauer(l.seit_s)}`
+    : `Zyklus ${l.zyklus} von ${l.n} · nachgelegt ${l.nachgelegt} · seit ${dauer(l.seit_s)}`;
+  return h("div", { klasse: "karte auffaellig", stil: "--farbe:var(--nachlegen)" },
+    h("div", { klasse: "status" }, h("div", { klasse: "punkt blinkt" }),
+      h("div", { stil: "min-width:0" }, h("h2", {}, "Aufzeichnung läuft"),
+        h("div", { klasse: "satz" }, einmessenSatz(l)),
+        h("div", { klasse: "leise", stil: "margin-top:4px" }, zeile),
+        l.notiz && h("div", { klasse: "leise notiz" }, `Notiz: ${l.notiz}`),
+        h("div", { klasse: "leise" }, l.push ? "Push-Nachrichten sind an." : "Ohne Push-Nachrichten."))),
+    !l.nachlauf && h("p", { klasse: "warnung", stil: "margin-top:10px" }, "Übertemperatur meldet die App nur, sie drosselt beim Einmessen nicht."),
+    h("p", { stil: "margin-top:12px" }, h("button", { klasse: "neben", onclick: () => einmessenAbbrechen(l) }, "Abbrechen")));
+}
+function einmessenNeuKarte(d) {
+  const e = einmessenEntwurf, max = d.max_zyklen || 5;
+  e.zyklen = Math.min(Math.max(e.zyklen, 1), max);
+  if (e.push === null) e.push = !!d.push_geraet;
+  const zahlen = Array.from({ length: max }, (_, i) => i + 1);
+  const gruppe = h("div", { klasse: "modus", role: "group", "aria-label": "Anzahl Nachlegezyklen" });
+  const markieren = () => gruppe.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.n === e.zyklen)));
+  gruppe.append(...zahlen.map((n) => h("button", { type: "button", "data-n": n, "aria-pressed": String(n === e.zyklen), onclick: () => { e.zyklen = n; markieren(); } }, String(n))));
+  const knopf = h("button", { klasse: "haupt", disabled: !d.startbar, onclick: async () => {
+    if (!confirm(`Einmessen mit ${e.zyklen} Nachlegezyklen starten?\n\nDie Klappe geht auf 100 % und bleibt dort bis zum letzten Nachlegen.`)) return;
+    knopf.disabled = true;
+    try {
+      const neu = await api("api/einmessen/start", { zyklen: e.zyklen, push: !!e.push, notiz: e.notiz.trim() });
+      e.notiz = ""; toast("Aufzeichnung läuft. Jetzt anzünden."); einmessenZeichnen(neu);
+    } catch (f) { melden(f); knopf.disabled = !d.startbar; }
+  } }, "Aufzeichnung starten");
+  return h("div", { klasse: "karte" }, h("h2", {}, "Neue Aufzeichnung"),
+    h("ol", { klasse: "schritte" },
+      h("li", {}, "Starte die Aufzeichnung und zünde dann an. Die Klappe steht auf 100 %."),
+      h("li", {}, "Regle von Hand an den Ofenklappen, bis du zum letzten Mal nachgelegt hast."),
+      h("li", {}, "Danach übernimmt die Automatik. Die Aufzeichnung läuft still weiter, bis der Ofen kalt ist.")),
+    h("p", { klasse: "warnung" }, "Übertemperatur meldet die App beim Einmessen nur, sie drosselt nicht. Behalte den Ofen im Blick."),
+    h("div", { stil: "margin-top:14px" }, h("div", { klasse: "etikett" }, "Nachlegezyklen"), gruppe),
+    h("div", { stil: "margin-top:14px" }, jaNein(e, "push", "Push-Nachrichten beim Einmessen", "Meldet Start, Feuer, Nachlegen und Ende. Übertemperatur kommt über die eigene Nachricht „Übertemperatur“.", () => {})),
+    !d.push_geraet && h("p", { klasse: "leise", stil: "margin-top:6px" }, "Noch kein Gerät für Nachrichten gewählt. ",
+      h("button", { klasse: "textknopf", onclick: () => gehe("benachrichtigungen") }, "Zu den Benachrichtigungen")),
+    h("div", { klasse: "angaben", stil: "margin-top:14px" },
+      angabe("Notiz", h("input", { type: "text", maxLength: 80, value: e.notiz, placeholder: "z. B. Buche, 2 kg", "aria-label": "Notiz zur Aufzeichnung", oninput: (x) => { e.notiz = x.target.value; } }))),
+    h("p", { stil: "margin-top:14px" }, knopf),
+    !d.startbar && d.startbar_grund && h("p", { klasse: "warnung" }, d.startbar_grund));
+}
+async function einmessenListeAktion(pfad, text) {
+  try { const d = await api(pfad, {}); toast(text); einmessenZeichnen(d); } catch (f) { melden(f); }
+}
+function einmessenListeKarte(d) {
+  const laufId = d.laeuft ? d.laeuft.id : null;
+  const zeile = (k) => {
+    const laeuft = k.id === laufId;
+    const pfad = `api/einmessen/${encodeURIComponent(k.id)}`;
+    return h("div", { klasse: "einmess-zeile" },
+      h("div", { klasse: "titelzeile" }, h("b", {}, uhr(k.start)),
+        laeuft && h("span", { klasse: "chip eigen" }, "läuft"),
+        k.massgeblich && h("span", { klasse: "chip massgeblich" }, "maßgeblich"),
+        k.punkte_bearbeitet && h("span", { klasse: "chip" }, "Punkte bearbeitet")),
+      k.notiz && h("div", { klasse: "notiz" }, k.notiz),
+      h("div", { klasse: "leise" }, [`${k.nachgelegt} von ${k.n} nachgelegt`, k.ende_text].filter(Boolean).join(" · ")),
+      h("div", { klasse: "aktionen" },
+        h("button", { klasse: "neben klein", onclick: () => einmessenOeffnen(k.id) }, "Öffnen"),
+        !laeuft && h("button", { klasse: "neben klein wahl", "aria-pressed": String(!!k.massgeblich), disabled: !!k.massgeblich,
+          title: k.massgeblich ? "Diese Aufzeichnung ist maßgeblich" : "Diese Aufzeichnung maßgeblich machen",
+          onclick: () => einmessenListeAktion(`${pfad}/massgeblich`, "Diese Aufzeichnung ist jetzt maßgeblich.") }, "Maßgeblich"),
+        !laeuft && h("button", { klasse: "textknopf", onclick: () => {
+          if (confirm(`Aufzeichnung vom ${uhr(k.start)} löschen? Das kann nicht rückgängig gemacht werden.`)) einmessenListeAktion(`${pfad}/loeschen`, "Aufzeichnung gelöscht.");
+        } }, "Löschen")));
+  };
+  return h("div", { klasse: "karte" }, h("h2", {}, "Aufzeichnungen"),
+    d.liste.length === 0 ? h("p", { klasse: "leise" }, "Noch keine Aufzeichnung. Die erste startest du oben.")
+      : [h("p", { klasse: "leise" }, "Die Vorschläge der maßgeblichen Aufzeichnung gelten als Grundlage. Genau eine ist maßgeblich."), ...d.liste.map(zeile)]);
+}
+async function einmessenZeichnen(daten) {
+  const d = daten || await api("api/einmessen");
+  if (seite !== "einmessen" || einmessenOffen !== null) return;
+  einmessenStand = Date.now(); einmessenAngezeigt = { laeuft: !!d.laeuft, modus };
+  zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Einmessen"),
+      h("p", { klasse: "leise" }, "Du regelst einen Abbrand von Hand, die App zeichnet auf. Aus den Punkten im Verlauf schlägt sie Parameter für deinen Ofen vor.")),
+    d.laeuft ? einmessenLaufKarte(d.laeuft) : einmessenNeuKarte(d),
+    einmessenListeKarte(d));
+}
+// Im Takt der Statusabfrage: die Übersicht alle ~10 s neu (auch für startbar), sofort bei Start, Ende oder Moduswechsel. Nie mitten in einer Eingabe.
+function einmessenAuffrischen(s) {
+  if (einmessenOffen !== null || !einmessenAngezeigt) return;
+  const wechsel = einmessenAngezeigt.laeuft !== !!s.einmessen || einmessenAngezeigt.modus !== s.modus;
+  if (!wechsel && Date.now() - einmessenStand < 9500) return;
+  const f = document.activeElement;
+  if (f && inhalt.contains(f) && (f.tagName === "INPUT" || f.tagName === "TEXTAREA")) return;
+  einmessenZeichnen().catch(() => { /* nächster Versuch im nächsten Takt */ });
+}
+async function einmessenOeffnen(id) {
+  einmessenOffen = id;
+  try { const d = await api(`api/einmessen/${encodeURIComponent(id)}`); einmessenDetail(d); }
+  catch (f) { einmessenOffen = null; melden(f); }
+}
+function einmessenDetail(d, behalten = {}) {
+  const k = d.kopf, v = d.verlauf, arten = d.punktarten || [], ereignisse = d.ereignisse || [];
+  if (seite !== "einmessen" || String(einmessenOffen) !== String(k.id)) return;
+  const pfad = `api/einmessen/${encodeURIComponent(k.id)}`;
+  const st = { punkte: behalten.punkte || (d.punkte || []).map((p) => ({ ...p })), geaendert: !!behalten.punkte, gewaehlt: null,
+    art: arten.some((a) => a.art === behalten.art) ? behalten.art : (arten[0] ? arten[0].art : null), aus: behalten.aus || new Set(), evOffen: !!behalten.evOffen };
+  const artName = (a) => (arten.find((x) => x.art === a) || {}).name || a;
+  const feldTitel = (f) => ((d.vorschlaege || []).find((x) => x.feld === f) || {}).titel || f;
+  const tAm = (z) => { const i = naechsterIndex(v.zeit, z); return i < 0 ? null : v.t[i]; };
+  const punktText = (p) => { const t = tAm(p.zeit); return t === null || t === undefined ? artName(p.art) : `${artName(p.art)} ${zahl(t)} °C`; };
+  const merken = () => ({ art: st.art, aus: st.aus, evOffen: st.evOffen, ...(st.geaendert ? { punkte: st.punkte } : {}) });
+  const laden = async () => einmessenDetail(await api(pfad), merken());
+  const zurueck = () => {
+    if (st.geaendert && !confirm("Die geänderten Punkte sind noch nicht gespeichert. Trotzdem zurück?")) return;
+    einmessenOffen = null; einmessenGeaendert = false; einmessenZeichnen().catch(melden);
+  };
+  const aendern = (ergebnis) => { st.punkte = ergebnis.punkte; st.gewaehlt = ergebnis.punkt; st.geaendert = true; neu(); };
+  const klemmen = (z) => zeitKlemmen(z, k.start, k.ende || v.zeit[v.zeit.length - 1] || k.start);
+  const setzen = (zeit) => { if (!st.art) return; const z = klemmen(zeit); aendern(punktSetzen(st.punkte, st.art, z, zyklusAus(ereignisse, z))); };
+  const verschieben = (p, zeit) => { const z = klemmen(zeit); aendern(punktVerschieben(st.punkte, p, z, zyklusAus(ereignisse, z))); };
+  const laufend = !k.ende;
+  const entfernen = () => { st.punkte = punktEntfernen(st.punkte, st.gewaehlt); st.gewaehlt = null; st.geaendert = true; neu(); };
+  const speichern = async () => {
+    try { const n = await api(`${pfad}/punkte`, { punkte: punkteFuerServer(st.punkte) }); toast("Punkte gespeichert, die Vorschläge sind neu berechnet."); einmessenDetail(n, { art: st.art, aus: st.aus, evOffen: st.evOffen }); }
+    catch (f) { melden(f); }
+  };
+  const zuruecksetzen = async () => {
+    if (!confirm("Alle Punkte auf die Vorschläge der App zurücksetzen? Deine Änderungen an den Punkten gehen verloren.")) return;
+    try { const n = await api(`${pfad}/punkte_zuruecksetzen`, {}); toast("Vorschläge der App wiederhergestellt."); einmessenDetail(n, { art: st.art, aus: st.aus, evOffen: st.evOffen }); }
+    catch (f) { melden(f); }
+  };
+  const massgeblich = async () => {
+    try { await api(`${pfad}/massgeblich`, {}); toast("Diese Aufzeichnung ist jetzt maßgeblich."); await laden(); } catch (f) { melden(f); }
+  };
+  // Punkte in der Grafik: Antippen wählt, Ziehen verschiebt, Tippen auf freie Fläche setzt die gewählte Art im Zyklus dort.
+  const zusatz = (g) => {
+    const sichtbar = st.punkte.map((p, i) => [p, i]).filter(([p]) => p.zeit >= g.z0 && p.zeit <= g.z1);
+    const lage = sichtbar.map(([p]) => {
+      const xp = g.x(p.zeit), breite = punktText(p).length * 6.2 + 5, rechts = xp > g.L + (g.B - g.L) * 0.7;
+      return { xp, rechts, von: rechts ? xp - breite : xp, bis: rechts ? xp : xp + breite };
+    });
+    const zeilen = zeilenVerteilen(lage);
+    sichtbar.forEach(([p, i], j) => {
+      const { xp, rechts } = lage[j], c = punktFarbe(p.art), aktiv = p === st.gewaehlt;
+      const ty = g.O + 11 + zeilen[j] * 13;
+      const griff = g.s("g", { class: "punkt-griff", "data-i": i });
+      griff.append(g.s("line", { x1: xp, x2: xp, y1: g.O, y2: g.O + g.hoch, stroke: "transparent", "stroke-width": 24, "pointer-events": "stroke" }));
+      const strich = { x1: xp, x2: xp, y1: g.O, y2: g.O + g.hoch, style: `stroke:${c}`, "stroke-width": aktiv ? 3.2 : 2 };
+      if (p.auto) strich["stroke-dasharray"] = "6 4";
+      griff.append(g.s("line", strich));
+      griff.append(g.s("circle", { cx: xp, cy: g.O + g.hoch - 9, r: aktiv ? 8 : 6, style: `fill:${c}` }));
+      griff.append(g.s("text", { x: rechts ? xp - 5 : xp + 5, y: ty, "text-anchor": rechts ? "end" : "start", class: "punkt-text", style: `fill:${c}` }, punktText(p)));
+      g.svg.append(griff);
+    });
+    let zug = null;
+    g.svg.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const griff = e.target.closest ? e.target.closest(".punkt-griff") : null;
+      zug = { p: griff ? st.punkte[+griff.getAttribute("data-i")] : null, griff, sx: e.clientX, sy: e.clientY, zeit: null, bewegt: false };
+      if (griff) { e.preventDefault(); try { g.svg.setPointerCapture(e.pointerId); } catch (_) { /* ohne Capture geht es auch */ } }
+    });
+    g.svg.addEventListener("pointermove", (e) => {
+      if (!zug || !zug.p) return;
+      if (!zug.bewegt && Math.abs(e.clientX - zug.sx) < 4) return;
+      zug.bewegt = true; zug.zeit = g.zeitAus(e.clientX);
+      zug.griff.setAttribute("transform", `translate(${(g.x(zug.zeit) - g.x(zug.p.zeit)).toFixed(1)} 0)`);
+      const t = zug.griff.querySelector("text"); if (t) t.textContent = punktText({ ...zug.p, zeit: zug.zeit });
+    });
+    g.svg.addEventListener("pointerup", (e) => {
+      const z = zug; zug = null;
+      if (!z) return;
+      if (z.p) { if (z.bewegt) verschieben(z.p, z.zeit); else { st.gewaehlt = z.p; st.art = z.p.art; neu(); } return; }
+      if (Math.hypot(e.clientX - z.sx, e.clientY - z.sy) < 8) setzen(g.zeitAus(e.clientX));
+    });
+    g.svg.addEventListener("pointercancel", () => { if (zug && zug.griff) zug.griff.removeAttribute("transform"); zug = null; });
+  };
+  const vorschlagZeile = (x) => h("div", { klasse: "vorschlag-zeile" },
+    h("div", {}, h("b", {}, x.titel),
+      h("div", { klasse: "wechsel" }, `bisher ${wertText(x.alt)}${x.einheit ? " " + x.einheit : ""} → neu `, h("b", {}, `${wertText(x.wert)}${x.einheit ? " " + x.einheit : ""}`)),
+      x.begruendung && h("div", { klasse: /achtung/i.test(x.begruendung) ? "warnung" : "leise" }, x.begruendung),
+      x.gleich && h("div", { klasse: "leise" }, "Entspricht schon dem eingestellten Wert.")),
+    h("button", { klasse: "neben", disabled: laufend || !!x.gleich || x.wert === null || x.wert === undefined, title: laufend ? "Erst nach dem Ende der Aufzeichnung" : null, onclick: async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try { const r = await api(`${pfad}/uebernehmen`, { feld: x.feld }); toast(`${r.titel || x.titel} auf ${wertText(r.wert)}${x.einheit ? " " + x.einheit : ""} gesetzt`); await laden(); }
+      catch (f) { melden(f); b.disabled = false; }
+    } }, "Übernehmen"));
+  const neu = () => {
+    einmessenGeaendert = st.geaendert;
+    const schmal = inhalt.clientWidth < 600;
+    const reihen = REIHEN.filter((r) => EINMESS_REIHEN.includes(r.k) && !st.aus.has(r.k) && reihenWerte(v, r.k).length > 0);
+    const bild = grafik(v, { reihen, tuer: true, zusatz, klasse: "einmess", breite: schmal ? 480 : 860, hoehe: 360,
+      marker: ereignisse.map((e) => ({ zeit: e.zeit, text: ereignisKurz(e), titel: `${uhrzeit(e.zeit)} ${e.text || e.art}` })) });
+    const pa = arten.find((a) => a.art === st.art);
+    const anzahl = (a) => st.punkte.filter((p) => p.art === a).length;
+    const tuerDa = (v.tuer || []).some((w) => w !== null && w !== undefined);
+    const legende = h("div", { klasse: "legende", role: "group", "aria-label": "Linien ein- und ausschalten" },
+      REIHEN.filter((r) => EINMESS_REIHEN.includes(r.k) && reihenWerte(v, r.k).length > 0).map((r) => h("button", { type: "button", stil: `--c:var(${r.farbe})`, "aria-pressed": String(!st.aus.has(r.k)),
+        onclick: () => { if (st.aus.has(r.k)) st.aus.delete(r.k); else st.aus.add(r.k); neu(); } }, h("i", {}), r.k === "klappe" ? `Klappe (${r.einheit})` : reihenTitel(v, r))),
+      h("span", {}, "Farbband: Phase"), tuerDa && h("span", {}, "schmales Band: Tür offen"), h("span", {}, "gestrichelt: Ereignis oder Punkt der App"));
+    const g = st.gewaehlt;
+    zeige(h("div", { klasse: "kopf" },
+        h("p", {}, h("button", { klasse: "textknopf", onclick: zurueck }, "← Alle Aufzeichnungen")),
+        h("h1", { stil: "margin-top:6px" }, `Aufzeichnung vom ${uhr(k.start)}`),
+        h("p", { klasse: "leise" }, [k.notiz, `${k.nachgelegt} von ${k.n} nachgelegt`, k.ende_text].filter(Boolean).join(" · "), " ",
+          k.massgeblich && h("span", { klasse: "chip massgeblich" }, "maßgeblich"))),
+      !k.ende && h("div", { klasse: "karte auffaellig", stil: "--farbe:var(--nachlegen)" }, h("p", {}, "Die Aufzeichnung läuft noch. Neu laden zeigt den aktuellen Stand."),
+        h("p", { stil: "margin-top:8px" }, h("button", { klasse: "neben", onclick: () => laden().catch(melden) }, "Neu laden"))),
+      h("div", { klasse: "karte" }, h("h2", {}, "Punkte im Verlauf"),
+        arten.length > 0 && h("div", { klasse: "punktwahl", role: "group", "aria-label": "Punktart wählen" },
+          arten.map((a) => h("button", { type: "button", stil: `--c:${punktFarbe(a.art)}`, "aria-pressed": String(a.art === st.art),
+            onclick: () => { st.art = a.art; if (st.gewaehlt && st.gewaehlt.art !== a.art) st.gewaehlt = null; neu(); } }, h("i", {}), a.name, h("span", { klasse: "leise" }, ` ${anzahl(a.art)}`)))),
+        pa && h("p", { klasse: "leise", stil: "margin-top:8px" }, pa.hilfe, pa.felder && pa.felder.length ? ` Bestimmt: ${(pa.feld_titel && pa.feld_titel.length ? pa.feld_titel : pa.felder.map(feldTitel)).join(", ")}.` : ""),
+        pa && h("p", { klasse: "leise", stil: "margin-top:4px" }, `Tippe in die Grafik, um „${pa.name}“ im Zyklus dort zu setzen. Einen Punkt ziehst du zur Seite, antippen wählt ihn.`),
+        h("div", { stil: "margin-top:10px" }, bild), legende,
+        g && h("div", { klasse: "punkt-wahl-info" },
+          h("span", {}, h("b", {}, artName(g.art)), ` · Zyklus ${g.zyklus} · ${uhrzeit(g.zeit)} Uhr · ${zahl(tAm(g.zeit))} °C`, g.auto ? " · Vorschlag der App" : ""),
+          h("button", { klasse: "neben klein", onclick: entfernen }, "Entfernen")),
+        st.geaendert && h("p", { klasse: "warnung" }, "Noch nicht gespeichert. Die Vorschläge unten gelten erst nach dem Speichern."),
+        h("div", { klasse: "knopfzeile" }, h("button", { klasse: "haupt", disabled: laufend || !st.geaendert, onclick: speichern }, "Punkte speichern"),
+          h("button", { klasse: "neben", disabled: laufend, onclick: zuruecksetzen }, "Vorschläge der App wiederherstellen")),
+        laufend && h("p", { klasse: "leise", stil: "margin-top:6px" }, "Speichern, Wiederherstellen und Übernehmen erst nach dem Ende der Aufzeichnung.")),
+      h("div", { klasse: "karte" }, h("h2", {}, "Vorschläge für die Parameter"),
+        !k.massgeblich && h("div", { klasse: "vorschlagbox" }, h("p", { klasse: "leise" }, "Diese Aufzeichnung ist nicht maßgeblich. Du kannst ihre Vorschläge trotzdem übernehmen."),
+          h("button", { klasse: "neben klein", onclick: massgeblich }, "Maßgeblich machen")),
+        laufend && h("p", { klasse: "warnung" }, "Übernehmen erst nach dem Ende der Aufzeichnung."),
+        (d.vorschlaege || []).length > 0 ? d.vorschlaege.map(vorschlagZeile) : h("p", { klasse: "leise" }, "Noch keine Vorschläge. Setze Punkte und speichere sie.")),
+      ereignisse.length > 0 && h("details", { klasse: "karte", open: st.evOffen, ontoggle: (e) => { st.evOffen = e.target.open; } }, h("summary", {}, `Ereignisse (${ereignisse.length})`),
+        ereignisse.map((e) => h("div", { klasse: "meldung" }, h("time", {}, uhrzeit(e.zeit)), e.zyklus ? `Zyklus ${e.zyklus} · ` : "", e.text || e.art))));
+  };
+  neu();
+}
+
 // ---- Rahmen ------------------------------------------------------------
-const SEITEN = { start: null, verlauf: verlaufZeichnen, kosten: kostenZeichnen, anlage: anlageZeichnen, eingaenge: eingaengeZeichnen, einstellungen: einstellungenZeichnen, regler: reglerZeichnen, benachrichtigungen: benachrichtigungenZeichnen, service: serviceZeichnen };
+const SEITEN = { start: null, verlauf: verlaufZeichnen, kosten: kostenZeichnen, anlage: anlageZeichnen, eingaenge: eingaengeZeichnen, einstellungen: einstellungenZeichnen, regler: reglerZeichnen,
+  einmessen: () => { einmessenOffen = null; return einmessenZeichnen(); }, benachrichtigungen: benachrichtigungenZeichnen, service: serviceZeichnen };
 // Unterreiter von „Einstellungen“ in Anzeigereihenfolge; „einstellungen“ selbst ist der Reiter Parameter.
-const UNTERREITER = [["einstellungen", "Parameter"], ["anlage", "Anlage"], ["eingaenge", "Ein-/Ausgänge"], ["regler", "Regler"], ["benachrichtigungen", "Benachrichtigungen"]];
+const UNTERREITER = [["einstellungen", "Parameter"], ["anlage", "Anlage"], ["eingaenge", "Ein-/Ausgänge"], ["regler", "Regler"], ["einmessen", "Einmessen"], ["benachrichtigungen", "Benachrichtigungen"]];
 const imUnterreiter = (name) => UNTERREITER.some(([k]) => k === name);
 let seite = "start";
 async function aktualisieren() {
-  try { const s = await api("api/status"); modusAnzeigen(s.modus); if (seite === "start") startZeichnen(s); }
+  try { const s = await api("api/status"); modusAnzeigen(s.modus); if (seite === "start") startZeichnen(s); else if (seite === "einmessen") einmessenAuffrischen(s); }
   catch (f) { if (seite === "start") zeige(h("div", { klasse: "karte" }, `Keine Daten: ${f.message}`)); }
 }
 async function gehe(name) {
+  if (einmessenOffen !== null && einmessenGeaendert) {
+    if (!confirm("Die geänderten Punkte sind noch nicht gespeichert. Trotzdem wechseln?")) return;
+    einmessenGeaendert = false;
+  }
   seite = SEITEN.hasOwnProperty(name) ? name : "start";
   location.hash = seite;
   const haupt = imUnterreiter(seite) ? "einstellungen" : seite;

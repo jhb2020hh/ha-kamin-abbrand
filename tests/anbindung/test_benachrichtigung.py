@@ -44,9 +44,10 @@ def lauf(ablauf):
 
 def test_arten_sind_vollstaendig():
     assert [a.schluessel for a in ARTEN] == ["nachlegen", "stoerung", "reinigung", "betrieb",
-                                             "wasser_hinweis", "wasser_warnung", "wasser_alarm"]
+                                             "wasser_hinweis", "wasser_warnung", "wasser_alarm", "uebertemperatur",
+                                             "einmessen"]
     assert all(a.titel for a in ARTEN)
-    assert {a.schluessel for a in ARTEN if a.dringend} == {"stoerung", "wasser_alarm", "betrieb"}
+    assert {a.schluessel for a in ARTEN if a.dringend} == {"stoerung", "wasser_alarm", "betrieb", "uebertemperatur"}
 
 
 def test_leere_vorgabe_sendet_nichts(tmp_path):
@@ -80,8 +81,20 @@ def test_dringende_arten_senden_time_sensitive_die_anderen_nicht():
             b.melden(a.schluessel, "x")
         await b.abwarten()
         daten = {art: d for (_, titel, _, d), art in zip(sender.aufrufe, [a.schluessel for a in ARTEN])}
-        assert {k for k, v in daten.items() if v == DRINGEND} == {"stoerung", "wasser_alarm", "betrieb"}
-        assert all(v is None for k, v in daten.items() if k not in ("stoerung", "wasser_alarm", "betrieb"))
+        dringend = {"stoerung", "wasser_alarm", "betrieb", "uebertemperatur"}
+        assert {k for k, v in daten.items() if v == DRINGEND} == dringend
+        assert all(v is None for k, v in daten.items() if k not in dringend)
+    lauf(ablauf)
+
+
+def test_uebertemperatur_titel_und_ohne_entprellung():
+    async def ablauf():
+        b, sender, uhr = bauen({"uebertemperatur": ["notify.a"]})
+        assert b.melden("uebertemperatur", "Abgas 450 °C")
+        assert b.melden("uebertemperatur", "Abgas 450 °C") == []                   # Vorgabe: entprellt
+        assert b.melden("uebertemperatur", "Abgas 450 °C", entprellen=False) == ["notify.a"]
+        await b.abwarten()
+        assert [(t, d) for _, t, _, d in sender.aufrufe] == [("🔥 Kamin – ÜBERTEMPERATUR", DRINGEND)] * 2
     lauf(ablauf)
 
 

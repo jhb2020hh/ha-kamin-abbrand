@@ -246,6 +246,10 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
     hand = hand_zeigen(app, jetzt)
     if hand["aktiv"] and phase:
         stil, satz = "wartung", f"Handbetrieb: Klappe {hand['klappe']:.0f} %, noch {hand['rest_s'] / 60:.0f} min."
+    einmessen = app.einmessen_kurz(jetzt) if hasattr(app, "einmessen_kurz") else None
+    if einmessen and einmessen["handregelung"] and phase:
+        stil, satz = "wartung", (f"Einmessen: Klappe 100 %, du regelst an den Ofenklappen. "
+                                 f"Nachgelegt {einmessen['nachgelegt']} von {einmessen['n']}.")
     return {
         "zeit": jetzt,
         "phase": phase,
@@ -267,6 +271,8 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "zug": ein.zahl(_rolle(app, "druck")),
         "twt": ein.zahl(_rolle(app, "t_wt")),
         "puffer_unten": puffer,
+        "pumpe": app.pumpe_laeuft(),
+        "pumpe_stellsignal": app.pumpe_stellsignal(),
         "gradient": app.letzte_eingaben.g if app.letzte_eingaben else None,
         "t_maximum": z.t_maximum if z else None,
         "phase_seit": z.phase_seit if z else None,
@@ -300,6 +306,7 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "amortisation": amortisation_zeigen(app),
         "wasser": wasser_zeigen(app),
         "fehler": dict(app._fehler),
+        "einmessen": einmessen,
     }
 
 
@@ -358,7 +365,7 @@ def verlauf_lesen(ordner: Path, stunden: float, jetzt: Optional[float] = None, m
     zeilen = list(_zeilen(ordner, jetzt - stunden * 3600.0, jetzt))
     schritt = max(1, len(zeilen) // max_punkte)
     ergebnis: dict[str, list] = {"zeit": [], "t": [], "ziel": [], "twt": [], "klappe": [], "klappe_ist": [],
-                                 "zug": [], "leistung": [], "phase": []}
+                                 "zug": [], "leistung": [], "pumpe": [], "phase": []}
     for zeile in zeilen[::schritt]:
         live = zeile.get("live") or {}
         lauf = (zeile.get("ergebnis") or {}).get("zustand") or {}
@@ -371,6 +378,7 @@ def verlauf_lesen(ordner: Path, stunden: float, jetzt: Optional[float] = None, m
         ergebnis["klappe_ist"].append(anzeige.get("klappe_ist"))
         ergebnis["zug"].append(anzeige.get("druck"))
         ergebnis["leistung"].append(anzeige.get("leistung_kw"))
+        ergebnis["pumpe"].append(anzeige.get("pumpe"))
         ergebnis["phase"].append(live.get("phase", lauf.get("phase")))
     return ergebnis
 

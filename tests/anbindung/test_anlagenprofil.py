@@ -176,7 +176,8 @@ def test_anteile(liste, erwartet):
 # ---- Was zum Profil passt ------------------------------------------------
 
 
-WASSERROLLEN = ("t_wt", "t_wt_anstieg", "vorlauf", "ruecklauf", "waermezaehler", "pumpe", "puffer_unten", "puffer_oben")
+WASSERROLLEN = ("t_wt", "t_wt_anstieg", "vorlauf", "ruecklauf", "waermezaehler", "pumpe", "pumpe_stellsignal",
+                "puffer_unten", "puffer_oben")
 
 
 def test_luftgefuehrt_zeigt_keine_wasserrollen():
@@ -189,7 +190,41 @@ def test_wassergefuehrt_zeigt_nur_was_da_ist():
     voll = profil()
     assert all(rolle_passt(r, voll) for r in WASSERROLLEN)
     ohne = profil(puffer=False, pumpe_extern=False)
-    assert not rolle_passt("puffer_unten", ohne) and not rolle_passt("pumpe", ohne) and rolle_passt("vorlauf", ohne)
+    assert not rolle_passt("puffer_unten", ohne) and rolle_passt("vorlauf", ohne)
+    # pumpe_extern ist nur ein Info-Haken: Beide Pumpenrollen hängen an der Wasserseite.
+    assert rolle_passt("pumpe", ohne) and rolle_passt("pumpe_stellsignal", ohne)
+
+
+def test_hinweis_pumpe_nur_ohne_ein_aus_und_ohne_stellsignal():
+    p = profil()
+    assert "Pumpe ist nicht zugewiesen" in texte(p)
+    assert "Pumpe ist nicht zugewiesen" not in texte(p, {"pumpe": "binary_sensor.p"})
+    assert "Pumpe ist nicht zugewiesen" not in texte(p, {"pumpe_stellsignal": "sensor.pwm"})
+
+
+def test_pumpe_laeuft_ab_vorgabe_eigener_wert_und_grenzen():
+    assert profil().pumpe_laeuft_ab == 5.0
+    assert profil(pumpe_laeuft_ab="").pumpe_laeuft_ab == 5.0
+    assert profil(pumpe_laeuft_ab=0).pumpe_laeuft_ab == 0.0
+    assert profil(pumpe_laeuft_ab=12.5).pumpe_laeuft_ab == 12.5
+    assert profil_pruefen(profil(pumpe_laeuft_ab=20).als_dict()).pumpe_laeuft_ab == 20
+    for falsch in (-1, 101, "abc", True):
+        with pytest.raises(ProfilFehler, match="Pumpe läuft ab"):
+            profil(pumpe_laeuft_ab=falsch)
+
+
+@pytest.mark.parametrize("zugewiesen,ein_aus,stellsignal,erwartet", [
+    (True, "on", 0.0, True),          # Ein/Aus hat Vorrang vor dem Stellsignal
+    (True, "off", 80.0, False),
+    (True, "unavailable", 80.0, None),
+    (False, None, 1.2, False),        # 1,2 % liegt unter der Schwelle 5 %
+    (False, None, 5.0, True),
+    (False, None, 60.0, True),
+    (False, None, None, None),        # beide fehlen
+])
+def test_pumpe_laeuft_ableitung(zugewiesen, ein_aus, stellsignal, erwartet):
+    from anbindung.anlagenprofil import pumpe_laeuft
+    assert pumpe_laeuft(zugewiesen, ein_aus, stellsignal, 5.0) is erwartet
 
 
 def test_ohne_motor_und_ohne_tuerkontakt():

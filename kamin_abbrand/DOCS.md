@@ -69,13 +69,24 @@ Die App braucht den Zugriff auf die Home-Assistant-API (`homeassistant_api`). Di
 
 ## Einstellungen
 
-Das Menü **Einstellungen** hat fünf Reiter:
+Das Menü **Einstellungen** hat sechs Reiter:
 
 - **Parameter:** Grenzwerte und Vorgaben. Es erscheint nur, was zu deiner Anlage passt.
 - **Anlage:** Ofen normal (luftgeführt) oder wassergeführt, Puffer, Pumpe, Klappe, Türkontakt, Wärmeerzeuger, Einheiten, Holz. Die Erzeuger lassen sich beliebig kombinieren.
 - **Ein-/Ausgänge:** Sensoren und Schalter zuweisen. Pflicht ist nur die Abgastemperatur. Änderungen gelten ohne Neustart. Bei wassergeführten Öfen weist du hier auch die Fühler und den Wärmemengenzähler zu, getrennt nach Energie und Leistung.
 - **Regler:** Kp, Tn und Kd sowie Auto-Tune. „Aus dem Verlauf berechnen“ wertet die Klappenbewegungen der letzten sieben Tage nach CHR aperiodisch aus und liefert einen Vorschlag, den du bestätigst. Der Testlauf mit gezielter Klappenbewegung ist derzeit gesperrt.
-- **Benachrichtigungen:** Für jede Nachrichtenart wählst du die Geräte. Ohne Haken wird nichts gesendet. Je Gerät gibt es eine Testnachricht.
+- **Einmessen:** Aufzeichnung eines von Hand geregelten Abbrands, aus der die App Grenzwerte für deinen Ofen und Fühler vorschlägt (siehe unten).
+- **Benachrichtigungen:** Für jede Nachrichtenart wählst du die Geräte. Ohne Haken wird nichts gesendet. Je Gerät gibt es eine Testnachricht. „Übertemperatur“ meldet Abgas oder Wasser über der Grenze, im Lauschen wie im Betrieb, alle 5 min erneut und mit Entwarnung 10 K unter der Grenze.
+
+### Einmessen
+
+Jeder Ofen und jeder Fühler ist anders. Beim Einmessen zeichnet die App einen Abbrand auf, den du selbst regelst, und leitet daraus die Grenzwerte ab.
+
+1. Im **Betrieb** und bei kaltem Ofen unter Einstellungen → Einmessen die Anzahl der Nachlegezyklen (1–5) wählen, auf Wunsch Push und eine Notiz, dann starten.
+2. Anzünden. Die Zuluftklappe steht auf 100 %, als wäre sie nicht da. Du regelst an den Luftschiebern des Ofens wie gewohnt. Übertemperatur wird nur gemeldet, nicht gedrosselt.
+3. Nach dem letzten Nachlegen (Türöffnung, ohne Türkontakt am wieder steigenden Abgas) übernimmt die Automatik. Die Aufzeichnung läuft still weiter, bis der Ofen kalt ist, damit das Abkühlen sichtbar wird.
+
+Sie endet sofort bei „Abbrechen“, ohne Feuer nach 60 min (auch wenn das Feuer gleich wieder ausgeht), bei kaltem Ofen, nach 8 h, beim Wechsel auf Lauschen, nach einem Neustart der App und wenn das Aufzeichnen dreimal in Folge fehlschlägt. Die Automatik übernimmt dann sofort. Das letzte Nachlegen gilt erst, wenn die Tür 30 s zu ist. Meldet der Türkontakt länger als 2 min nichts, erkennt die App das Nachlegen am Temperaturverlauf. Danach setzt die App im Trend Punkte: Anheizen Max (→ Kaltstart offen bis), Abbrand stabil (→ Abbrandstart und Anstieg für die Feuererkennung), Bester Abbrand (→ Zieltemperaturen und Ausbrand-Abfall), Nachlegen/Glut (→ Glut), Abkühlen (→ Abkühlen). „Zu heiß“ (→ Übertemperatur) setzt du nur selbst. Ziehe die Punkte an die richtige Stelle, speichere sie und übernimm die Vorschläge einzeln. Bei mehreren Zyklen gilt das Mittel. Alle Aufzeichnungen bleiben gespeichert, eine ist maßgeblich.
 
 Die Leistung wählst du mit Eco, Normal und Power auf der Startseite. Sie setzt das Ziel der App, die Zieltemperaturen je Stufe stehen unter Parameter. Eine Live-Automation in Home Assistant bleibt davon unberührt. Im Lauschen wirkt die Wahl nur auf die Berechnung.
 

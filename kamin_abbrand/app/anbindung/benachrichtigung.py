@@ -39,6 +39,10 @@ ARTEN: tuple[Art, ...] = (
     Art("wasser_hinweis", "Wasser: Hinweis", "Zum Beispiel Puffer voll, besser nicht nachlegen.", False, "🔥 Kamin – Wasser"),
     Art("wasser_warnung", "Wasser: Warnung", "Vorlauf hoch oder Rücklauf zu kalt.", False, "🔥 Kamin – Wasser"),
     Art("wasser_alarm", "Wasser: Alarm", "Wasser zu heiß oder Pumpe steht bei Feuer.", True, "🔥 Kamin – Wasser-Alarm"),
+    Art("uebertemperatur", "Übertemperatur", "Abgas oder Wasser über der Grenze, mit Entwarnung.", True,
+        "🔥 Kamin – ÜBERTEMPERATUR"),
+    Art("einmessen", "Einmessen", "Start, Feuer, Nachlegen und Ende einer Aufzeichnung. Nur, wenn beim Start gewählt.",
+        False, "🔥 Kamin – Einmessen"),
 )
 ARTEN_NACH_NAME = {a.schluessel: a for a in ARTEN}
 
@@ -110,10 +114,11 @@ class Benachrichtiger:
         self._zuletzt: dict[tuple[str, str], float] = {}
         self._aufgaben: set[asyncio.Task] = set()
 
-    def melden(self, art: str, text: str, titel: Optional[str] = None) -> list[str]:
+    def melden(self, art: str, text: str, titel: Optional[str] = None, entprellen: bool = True) -> list[str]:
         """Plant den Versand und kehrt sofort zurück. Gibt die Geräte zurück, an die gesendet wird.
 
-        Ohne zugeordnetes Gerät und innerhalb der Entprellung passiert nichts."""
+        Ohne zugeordnetes Gerät und innerhalb der Entprellung passiert nichts. entprellen=False
+        ist für Absender, die selbst takten, zum Beispiel den Wächter der Übertemperatur."""
         beschreibung = ARTEN_NACH_NAME.get(art)
         if beschreibung is None:
             log.error("Unbekannte Nachrichtenart %r", art)
@@ -124,7 +129,7 @@ class Benachrichtiger:
         jetzt = self._uhr()
         schluessel = (art, text)
         letzte = self._zuletzt.get(schluessel)
-        if letzte is not None and jetzt - letzte < self._entprellung_s:
+        if entprellen and letzte is not None and jetzt - letzte < self._entprellung_s:
             return []
         try:
             schleife = asyncio.get_running_loop()

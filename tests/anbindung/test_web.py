@@ -275,6 +275,21 @@ def test_luftgefuehrt_zeigt_keine_wasserrollen_und_behaelt_zuweisungen():
     mit_web(p)
 
 
+def test_pumpe_ein_aus_und_stellsignal_sichtbar_ohne_pumpe_extern_und_schwelle_speichern():
+    async def p(ober, _, app, *__):
+        r = await ober.post("/api/profil", json={"ofen": "wassergefuehrt", "pumpe_extern": False, "pumpe_laeuft_ab": 12})
+        assert r.status == 200
+        d = {x["schluessel"]: x for x in (await (await ober.get("/api/rollen")).json())["rollen"]}
+        assert d["pumpe"]["sichtbar"] and d["pumpe_stellsignal"]["sichtbar"]
+        assert d["pumpe"]["titel"] == "Pumpe Ein/Aus" and d["pumpe_stellsignal"]["titel"] == "Pumpe Stellsignal"
+        assert d["pumpe_stellsignal"]["einheiten"] == ["%"]
+        profil = (await (await ober.get("/api/profil")).json())["profil"]
+        assert profil["pumpe_laeuft_ab"] == 12 and app.speicher.anlagenprofil.pumpe_laeuft_ab == 12
+        assert (await ober.post("/api/profil", json={"ofen": "wassergefuehrt", "pumpe_laeuft_ab": 150})).status == 400
+        assert app.speicher.anlagenprofil.pumpe_laeuft_ab == 12
+    mit_web(p)
+
+
 def test_einstellungen_zeigen_nur_passende_felder():
     async def p(ober, *_):
         namen = lambda d: {f["name"] for t in d["themen"] for f in t["felder"]}
@@ -398,8 +413,11 @@ def test_benachrichtigungen_matrix_geraete_und_speichern():
         assert [g["dienst"] for g in d["geraete"]] == ["notify.mobile_app_handy_a", "notify.mobile_app_handy_b", "notify.zebra"]
         assert d["geraete"][0]["name"] == "Handy A" and d["geraete"][0]["handy"] is True
         assert [a["schluessel"] for a in d["arten"]] == ["nachlegen", "stoerung", "reinigung", "betrieb",
-                                                         "wasser_hinweis", "wasser_warnung", "wasser_alarm"]
+                                                         "wasser_hinweis", "wasser_warnung", "wasser_alarm", "uebertemperatur",
+                                                         "einmessen"]
         assert all(a["titel"] for a in d["arten"])
+        assert d["arten"][-2] == {"schluessel": "uebertemperatur", "titel": "Übertemperatur",
+                                  "hilfe": "Abgas oder Wasser über der Grenze, mit Entwarnung.", "dringend": True}
         r = await ober.post("/api/benachrichtigungen", json={"zuordnung": {"stoerung": ["notify.mobile_app_handy_a"]}})
         assert r.status == 200
         assert app.speicher.benachrichtigungen == {"stoerung": ["notify.mobile_app_handy_a"]}

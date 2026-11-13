@@ -20,6 +20,8 @@ WAEHRUNG_VORGABE = "€"
 _WAEHRUNG_MAX = 5
 _ANTEIL_TOLERANZ = 0.5      # Prozentpunkte, damit 33,3 + 33,3 + 33,3 durchgeht
 
+PUMPE_LAEUFT_AB_VORGABE = 5.0
+
 _EINHEIT_SCHREIBWEISEN = {"kwh": KWH, "mwh": MWH, "m³": M3, "m3": M3, "m^3": M3, "l": LITER, "liter": LITER,
                           "kg": KG, "t": TONNE, "rm": RM, "srm": SRM}
 
@@ -94,7 +96,8 @@ Brennstoff = Union[Erzeuger, Holz]
 class Anlagenprofil:
     ofen: str = LUFT
     puffer: bool = False
-    pumpe_extern: bool = False
+    pumpe_extern: bool = False          # Nur zur Info, die Sichtbarkeit der Pumpe hängt daran nicht
+    pumpe_laeuft_ab: float = PUMPE_LAEUFT_AB_VORGABE    # % Stellsignal, ab dem die Pumpe als laufend gilt
     klappe_motorisiert: bool = True
     klappe_invertiert: bool = False     # 100 % Soll heißt am Ausgang 0
     klappe_y0: float = 0.0              # Startspannung in V eines Antriebs mit z. B. 2-10-V-Eingang (nur Licht)
@@ -243,6 +246,7 @@ def profil_pruefen(roh: Any) -> Anlagenprofil:
     rueck_auf = _zahl(roh.get("rueck_auf"), "Rückmeldung bei auf", -RUECK_GRENZE, RUECK_GRENZE)
     if rueck_zu is not None and rueck_auf is not None and abs(rueck_auf - rueck_zu) < RUECK_MIN_ABSTAND:
         raise ProfilFehler(f"Rückmeldung: Zu und auf müssen mindestens {RUECK_MIN_ABSTAND:g} auseinanderliegen.")
+    pumpe_ab = _zahl(roh.get("pumpe_laeuft_ab"), "Pumpe läuft ab", 0.0, 100.0)
     liste = roh.get("erzeuger") or []
     if not isinstance(liste, (list, tuple)):
         raise ProfilFehler("Die Liste der Wärmeerzeuger ist ungültig.")
@@ -251,6 +255,7 @@ def profil_pruefen(roh: Any) -> Anlagenprofil:
         # Ohne Wasserseite gibt es weder Puffer noch Pumpe des Ofens.
         puffer=wasser and _ja(roh, "puffer", "Puffer", False),
         pumpe_extern=wasser and _ja(roh, "pumpe_extern", "Pumpe", False),
+        pumpe_laeuft_ab=PUMPE_LAEUFT_AB_VORGABE if pumpe_ab is None else pumpe_ab,
         klappe_motorisiert=_ja(roh, "klappe_motorisiert", "Klappe", True),
         klappe_invertiert=_ja(roh, "klappe_invertiert", "Klappe invertiert", False),
         klappe_y0=_zahl(roh.get("klappe_y0"), "Startspannung", 0, 9.5) or 0.0,
@@ -388,6 +393,7 @@ def anteile(profil: Anlagenprofil) -> Optional[tuple[float, ...]]:
 
 _NUR_WASSER = ("t_wt", "t_wt_anstieg", "vorlauf", "ruecklauf", "waermezaehler", "waermeleistung")
 _NUR_PUFFER = ("puffer_unten", "puffer_oben")
+PUMPE_ROLLEN = ("pumpe", "pumpe_stellsignal")
 _NUR_KLAPPE = ("klappe_ist", "ausgang_klappe", "ausgang_heartbeat", "wartung", "handbetrieb", "konkurrierende_automation")
 
 
@@ -397,13 +403,24 @@ def rolle_passt(schluessel: str, profil: Anlagenprofil) -> bool:
         return profil.wassergefuehrt
     if schluessel in _NUR_PUFFER:
         return profil.puffer
-    if schluessel == "pumpe":
-        return profil.pumpe_extern
+    if schluessel in PUMPE_ROLLEN:
+        return profil.wassergefuehrt
     if schluessel in _NUR_KLAPPE:
         return profil.klappe_motorisiert
     if schluessel == "tuer":
         return profil.tuerkontakt
     return True
+
+
+def pumpe_laeuft(ein_aus_zugewiesen: bool, ein_aus: Optional[str], stellsignal: Optional[float],
+                 schwelle: float) -> Optional[bool]:
+    """Ein/Aus hat Vorrang, wenn zugewiesen. Sonst läuft die Pumpe ab der Schwelle des Stellsignals.
+    None, wenn sich das nicht sagen lässt."""
+    if ein_aus_zugewiesen:
+        return {"on": True, "off": False}.get(ein_aus)
+    if stellsignal is None:
+        return None
+    return stellsignal >= schwelle
 
 
 def feld_passt(name: str, profil: Anlagenprofil) -> bool:
@@ -422,13 +439,15 @@ def zaehler_entitaeten(profil: Anlagenprofil) -> list[str]:
 
 
 KOSTEN, AMORTISATION, WASSERSEITE, GRUNDLAGE = "Kosten", "Amortisation", "Wasser", "Grundlage"
+# Ein Hinweis kommt nur, wenn keine der Rollen zugewiesen ist.
 _WASSER_ROLLEN_TEXTE = (
-    ("t_wt", "Wärmetauscher ist nicht zugewiesen. Die App erkennt zu heißes Wasser am Ofen nicht."),
-    ("vorlauf", "Vorlauf ist nicht zugewiesen. Die Prüfung auf zu hohen Vorlauf bleibt aus."),
-    ("ruecklauf", "Rücklauf ist nicht zugewiesen. Die Prüfung auf zu kalten Rücklauf bleibt aus."),
-    ("pumpe", "Pumpe ist nicht zugewiesen. Die App erkennt nicht, ob die Pumpe bei Feuer steht."),
-    ("puffer_unten", "Puffer unten ist nicht zugewiesen. Die App weiß nicht, ob der Puffer voll ist."),
-    ("waermezaehler", "Wärmemengenzähler Energie ist nicht zugewiesen. Die Nutzwärme wird aus dem Holz geschätzt."),
+    (("t_wt",), "Wärmetauscher ist nicht zugewiesen. Die App erkennt zu heißes Wasser am Ofen nicht."),
+    (("vorlauf",), "Vorlauf ist nicht zugewiesen. Die Prüfung auf zu hohen Vorlauf bleibt aus."),
+    (("ruecklauf",), "Rücklauf ist nicht zugewiesen. Die Prüfung auf zu kalten Rücklauf bleibt aus."),
+    (PUMPE_ROLLEN, "Pumpe ist nicht zugewiesen, weder Ein/Aus noch Stellsignal. "
+                   "Die App erkennt nicht, ob die Pumpe bei Feuer steht."),
+    (("puffer_unten",), "Puffer unten ist nicht zugewiesen. Die App weiß nicht, ob der Puffer voll ist."),
+    (("waermezaehler",), "Wärmemengenzähler Energie ist nicht zugewiesen. Die Nutzwärme wird aus dem Holz geschätzt."),
 )
 
 
@@ -463,8 +482,8 @@ def fehlende_angaben(profil: Anlagenprofil, rollen: Mapping[str, str]) -> list[d
         melden(AMORTISATION, "Energiezähler ist nicht zugewiesen. Die Einsparung kann nur geschätzt werden.")
     if not rollen.get("t_aussen"):
         melden(AMORTISATION, "Außentemperatur ist nicht zugewiesen. Ohne sie gibt es keine gemessene Referenz.")
-    for rolle, text in _WASSER_ROLLEN_TEXTE:
-        if rolle_passt(rolle, profil) and not rollen.get(rolle):
+    for gruppe, text in _WASSER_ROLLEN_TEXTE:
+        if rolle_passt(gruppe[0], profil) and not any(rollen.get(r) for r in gruppe):
             melden(WASSERSEITE, text)
     return hinweise
 
