@@ -283,10 +283,12 @@ def test_schreibsperre_ohne_zusatzweg():
     for pfad in ordner.glob("*.py"):
         text = pfad.read_text(encoding="utf8")
         assert "call_service" not in text, pfad
-        # Dienste gibt es nur für notify.<name> und für schalte im Betrieb, und nur im Client.
+        # Dienste gibt es nur für notify.<name>, für schalte im Betrieb und für die freigegebene Automation,
+        # und nur im Client.
         assert pfad.name == "ha_client.py" or "/services/" not in text, pfad
-        assert text.count("/services/") == (2 if pfad.name == "ha_client.py" else 0), pfad
-        assert ("/services/notify/" in text and "/services/{domain}/{dienst}" in text) or pfad.name != "ha_client.py"
+        assert text.count("/services/") == (3 if pfad.name == "ha_client.py" else 0), pfad
+        assert ("/services/notify/" in text and "/services/{domain}/{dienst}" in text
+                and "/services/automation/{dienst}" in text) or pfad.name != "ha_client.py"
 
 
 def _app(ha, tmp_path, speicher, praefix="kamin_abbrand", **weiteres):
@@ -409,3 +411,19 @@ def test_handbetrieb_im_speicher(tmp_path):
     (tmp_path / "f.json").write_text('{"hand": {"bis": "x", "dauer_min": 999}}')
     f = Speicher(tmp_path / "f.json")
     assert f.hand_bis is None and f.hand_dauer_min == 30
+
+
+@pytest.mark.parametrize("roh, erwartet", [(True, True), (False, False), ("ja", False), (1, False), (None, False)])
+def test_merker_der_automation_laden_und_pruefen(tmp_path, roh, erwartet):
+    pfad = tmp_path / "e.json"
+    pfad.write_text(json.dumps({"rollen": {}, "automation_von_app_aus": roh}), encoding="utf-8")
+    assert Speicher(pfad).automation_von_app_aus is erwartet
+
+
+def test_merker_der_automation_wird_sofort_gespeichert(tmp_path):
+    s = Speicher(tmp_path / "e.json")
+    assert s.automation_von_app_aus is False
+    s.automation_merken(True)
+    assert Speicher(tmp_path / "e.json").automation_von_app_aus is True
+    s.automation_merken(False)
+    assert Speicher(tmp_path / "e.json").automation_von_app_aus is False

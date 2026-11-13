@@ -1,8 +1,9 @@
 """Verbindung zu Home Assistant über den Supervisor-Proxy.
 
 Lesen: WebSocket mit get_states und subscribe_events (state_changed).
-Schreiben: POST /api/states/sensor.kamin_app_*, Nachrichten über den Dienst notify.<name>
-und, ausschließlich im Betrieb, feste Dienste auf den zugewiesenen Ausgängen.
+Schreiben: POST /api/states/sensor.kamin_app_*, Nachrichten über den Dienst notify.<name>,
+ausschließlich im Betrieb feste Dienste auf den zugewiesenen Ausgängen und automation.turn_off/turn_on
+für genau die eine freigegebene konkurrierende Automation.
 Die Liste der Dienste wird nur gelesen (GET /api/services).
 
 Die Schreibsperre ist Absicht: Der Zugang des Supervisors hat Administratorrechte,
@@ -10,6 +11,8 @@ deshalb liegt die Grenze hier im Client. Es gibt keine Methode, die irgendetwas
 anderes in Home Assistant auslöst, und WebSocket-Befehle laufen durch eine Positivliste.
 Ein Dienst wird nur aufgerufen, wenn sein Name vollständig auf notify.[a-z0-9_]+ passt
 oder wenn `schalte` ihn durchlässt: Betrieb freigegeben, Entität zugewiesen, Dienst in der festen Liste.
+`automation_schalten` hat eine eigene Freigabe: Das Wiedereinschalten beim Verlassen des Betriebs muss
+auch dann durchgehen, wenn der Betrieb schon gesperrt ist.
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ REST_URL = "http://supervisor/core/api"
 _SCHATTEN_MUSTER = re.compile(r"sensor\.kamin_app_[a-z0-9_]+")
 _NOTIFY_MUSTER = re.compile(r"notify\.[a-z0-9_]+")
 _ENTITAET_MUSTER = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
+_AUTOMATION_MUSTER = re.compile(r"automation\.[a-z0-9_]+")
 _ERLAUBTE_WS_BEFEHLE = frozenset({"get_states", "subscribe_events"})
 # Domain und Dienst mit den Feldern, die mitgehen dürfen. Sonst ist nichts schaltbar:
 # Eine Pumpe (switch.turn_on) oder ein homeassistant.restart kann hier nicht durch.
@@ -102,6 +106,7 @@ class HaClient:
         self._verbunden = False
         self._betrieb_aktiv = False
         self._ausgaenge: frozenset[str] = frozenset()
+        self._automation: Optional[str] = None
 
     @property
     def verbunden(self) -> bool:
@@ -326,6 +331,33 @@ class HaClient:
         async with self._hole_sitzung().post(
             f"{self._rest_url}/services/{domain}/{dienst}",
             json={**daten, "entity_id": entity_id},
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=aiohttp.ClientTimeout(total=self._rest_timeout_s),
+        ) as antwort:
+            antwort.raise_for_status()
+
+    # ---- Konkurrierende Automation, eigene Freigabe ---------------------
+
+    @property
+    def automation_freigegeben(self) -> Optional[str]:
+        return self._automation
+
+    def automation_freigeben(self, eid: Optional[str]) -> None:
+        """Gibt genau diese eine Automation zum Aus- und Einschalten frei. None nimmt die Freigabe zurück.
+
+        Unabhängig von betrieb_freigeben und betrieb_sperren: Wer den Betrieb verlässt, muss sie wieder einschalten können."""
+        self._automation = eid if isinstance(eid, str) and _AUTOMATION_MUSTER.fullmatch(eid) else None
+
+    async def automation_schalten(self, entity_id: str, an: bool) -> None:
+        """automation.turn_on oder turn_off ohne weitere Felder. Wirft SchreibsperreFehler, bevor etwas
+        den Server erreicht, wenn `entity_id` nicht die freigegebene Automation ist."""
+        if (self._automation is None or not isinstance(entity_id, str) or entity_id != self._automation
+                or not _AUTOMATION_MUSTER.fullmatch(entity_id)):
+            raise SchreibsperreFehler(f"Automation nicht freigegeben: {entity_id!r}")
+        dienst = "turn_on" if an is True else "turn_off"
+        async with self._hole_sitzung().post(
+            f"{self._rest_url}/services/automation/{dienst}",
+            json={"entity_id": entity_id},
             headers={"Authorization": f"Bearer {self._token}"},
             timeout=aiohttp.ClientTimeout(total=self._rest_timeout_s),
         ) as antwort:

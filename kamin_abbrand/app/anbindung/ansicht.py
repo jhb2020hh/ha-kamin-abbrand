@@ -126,7 +126,7 @@ def betrieb_zeigen(app: Any, jetzt: float) -> dict:
     s = app.speicher
     eintrag = s.bestaetigung.get("betrieb") if s.bestaetigt else None
     return {
-        "offene_punkte": [p.als_dict() for p in offene_punkte(app, jetzt)],
+        "offene_punkte": [p.als_dict() for p in offene_punkte(app, jetzt, start=not app.im_betrieb)],
         "bestaetigt": s.bestaetigt,
         "bestaetigt_am": eintrag["datum"] if eintrag else None,
         "bestaetigt_version": eintrag["version"] if eintrag else None,

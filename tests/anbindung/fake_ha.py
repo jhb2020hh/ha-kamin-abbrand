@@ -35,6 +35,7 @@ class FakeHa:
         self.rest_status = 200
         self.dienst_status: Optional[int] = None    # Nur für Dienste außer notify, None = wie rest_status
         self.dienste: list[dict] = []
+        self.automation_folgt = True    # automation.turn_on/off ändert den Zustand wie in HA, False: sie bleibt, wie sie ist
         self._offen: set[web.WebSocketResponse] = set()
         self._abos: dict[web.WebSocketResponse, int] = {}
         app = web.Application()
@@ -140,7 +141,18 @@ class FakeHa:
             return web.json_response(self.dienste, status=self.rest_status)
         dienst = anfrage.path.startswith("/core/api/services/") and not anfrage.path.startswith("/core/api/services/notify/")
         status = self.dienst_status if dienst and self.dienst_status is not None else self.rest_status
+        schalten = {"/core/api/services/automation/turn_on": "on", "/core/api/services/automation/turn_off": "off"}
+        if anfrage.path in schalten and status < 300 and self.automation_folgt and isinstance(inhalt, dict):
+            eid = inhalt.get("entity_id")
+            if isinstance(eid, str) and (self.zustaende.get(eid) or {}).get("state") != schalten[anfrage.path]:
+                await self.aendern(eid, schalten[anfrage.path])
         return web.json_response({}, status=status)
+
+    def automationsbefehle(self) -> list[tuple[str, str]]:
+        """(Dienst, Entität) aller Aufrufe von automation.turn_on/turn_off."""
+        vorspann = "/core/api/services/automation/"
+        return [(p[len(vorspann):], k.get("entity_id")) for m, p, k in self.rest_anfragen
+                if m == "POST" and p.startswith(vorspann)]
 
 
 async def warte_auf(bedingung, timeout_s: float = 3.0) -> None:

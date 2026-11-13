@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from typing import Awaitable, Callable, Mapping, Optional
 
 from anbindung.eingaenge import als_zahl
@@ -22,6 +23,10 @@ SICHER_VERSUCHE = 3
 SICHER_PAUSE_S = 1.0
 HEARTBEAT_BEREICH = (0, 1000)   # Wenn die Entität keine Grenzen meldet
 Y0_MAX_V = 9.5
+# Fremdes Schreiben auf den Klappenausgang: Abweichung vom eigenen Befehl in Prozentpunkten, und wie lange
+# ein eigener, inzwischen überholter Befehl noch als Echo gilt.
+FREMD_TOLERANZ = 1.0
+ECHO_S = 10.0
 
 KLAPPE, HEARTBEAT, NEUSTART, WARTUNG_ROLLE, KLAPPE_IST = (
     "ausgang_klappe", "ausgang_heartbeat", "ausgang_neustart", "wartung", "klappe_ist")
@@ -72,6 +77,33 @@ def klappen_befehl(eid: str, soll: object, invertiert: bool = False, y0_v: float
     return domain, "turn_on", {"brightness_pct": max(1, round(offset + (100 - offset) * ausgabe / 100)), "transition": 0}, ausgabe
 
 
+def befehlswert(befehl: Befehl) -> float:
+    """Was der Befehl am Ausgang einstellt, so wie die Entität es danach meldet: Wert, Position oder brightness_pct."""
+    _, dienst, daten, ausgabe = befehl
+    if dienst == "turn_off":
+        return 0.0
+    if daten and "brightness_pct" in daten:
+        return float(daten["brightness_pct"])
+    return float(ausgabe)
+
+
+def befehlswert_aus_zustand(eid: str, neu: Optional[Mapping]) -> Optional[float]:
+    """Der Wert eines state_changed in derselben Einheit wie befehlswert. None, wenn er nichts über einen
+    geschriebenen Sollwert sagt: nicht lesbar, oder ein Cover, das seine Iststellung meldet (die fährt langsam nach)."""
+    if not isinstance(neu, Mapping):
+        return None
+    domain = eid.split(".", 1)[0]
+    zustand = neu.get("state")
+    if domain in ("number", "input_number"):
+        return als_zahl(zustand)
+    if domain == "light":
+        if zustand == "off":
+            return 0.0
+        helligkeit = als_zahl((neu.get("attributes") or {}).get("brightness")) if zustand == "on" else None
+        return None if helligkeit is None else helligkeit * 100 / 255
+    return None
+
+
 class Ausgaenge:
     def __init__(
         self,
@@ -108,6 +140,8 @@ class Ausgaenge:
         self.stoerung_schalten: Optional[str] = None
         self.stoerung_abweichung: Optional[str] = None
         self._ohne_rolle_geloggt: set[str] = set()
+        self._befehlswert: Optional[float] = None
+        self._kuerzlich: deque[tuple[float, float]] = deque(maxlen=8)
 
     @property
     def stoerung(self) -> Optional[str]:
@@ -115,7 +149,8 @@ class Ausgaenge:
 
     def vergessen(self) -> None:
         """Nach einem Neustart von HA oder beim Einschalten: Der nächste Lauf sendet in jedem Fall."""
-        self.gesendet = self._ausgabe = None
+        self.gesendet = self._ausgabe = self._befehlswert = None
+        self._kuerzlich.clear()
         self._zeit = 0.0
         self._abweichung_seit = None
         self._zaehler = None
@@ -170,8 +205,24 @@ class Ausgaenge:
         self._fehlschlaege = 0
         self.stoerung_schalten = None
         self.gesendet, self._ausgabe, self._zeit = wert, ausgabe, jetzt
+        self._befehlswert = befehlswert(befehl)
+        self._kuerzlich.append((self._befehlswert, jetzt))
         self._rueckmeldung_pruefen(jetzt)
         return True
+
+    def fremder_wert(self, eid: Optional[str], neu: Optional[Mapping], jetzt: float) -> Optional[float]:
+        """Der Wert, wenn jemand anderes den Klappenausgang beschrieben hat, sonst None.
+
+        Das Echo des eigenen Befehls zählt nicht, auch nicht das eines eben überholten (ECHO_S)."""
+        klappe = self._rollen().get(KLAPPE)
+        if not eid or eid != klappe or self._befehlswert is None:
+            return None
+        wert = befehlswert_aus_zustand(eid, neu)
+        if wert is None or abs(wert - self._befehlswert) <= FREMD_TOLERANZ:
+            return None
+        if any(abs(wert - w) <= FREMD_TOLERANZ and 0 <= jetzt - z <= ECHO_S for w, z in self._kuerzlich):
+            return None
+        return wert
 
     def _rueckmeldung_pruefen(self, jetzt: float) -> None:
         ist_eid = self._rollen().get(KLAPPE_IST)

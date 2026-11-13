@@ -460,6 +460,10 @@ def fehlende_angaben(profil: Anlagenprofil, rollen: Mapping[str, str]) -> list[d
 
     if not rollen.get("abgas"):
         melden(GRUNDLAGE, "Abgastemperatur ist nicht zugewiesen. Ohne sie kann die App nichts berechnen.")
+    klappe = rollen.get("ausgang_klappe")
+    if klappe and klappe.startswith("input_number.") and not rollen.get("konkurrierende_automation"):
+        # Nur ein Hinweis, kein offener Punkt: Der würde im Betrieb nach der Karenz zum Rückfall führen.
+        melden(GRUNDLAGE, "Konkurrierende Automation zuweisen, sonst kann eine Automation die Klappe überschreiben.")
     if not profil.erzeuger:
         melden(KOSTEN, "Kein Wärmeerzeuger eingetragen. Der Brennstoffvergleich braucht mindestens einen.")
     for erzeuger in profil.erzeuger:

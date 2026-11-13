@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Behoben: Im Betrieb konnte eine Automation in Home Assistant, die denselben Klappen-Helfer schreibt (z. B. die alte Phasensteuerung), die Klappe alle 30 s zurückstellen. Beim Einmessen pendelte die Klappe deshalb, statt auf 100 % zu bleiben.
+- Neu: Die als „Konkurrierende Automation“ zugewiesene Automation schaltet die App jetzt selbst: beim Wechsel auf Betrieb aus, bei Lauschen und bei jedem Rückfall wieder an. Lässt sie sich nicht ausschalten, bleibt die App im Lauschen. Wird sie im Betrieb wieder eingeschaltet, schaltet die App sie einmal aus und meldet das.
+- Neu: Schreibt trotzdem etwas anderes in den Klappen-Ausgang, stellt die App sofort ihren Wert wieder her und meldet das einmal je Betrieb.
+- Hinweis unter Ein-/Ausgänge, wenn der Klappen-Ausgang ein Helfer ist und keine konkurrierende Automation zugewiesen ist.
+
 ## 0.4.0
 
 - Neu: Einmessen unter Einstellungen → Einmessen. Du startest eine Aufzeichnung, zündest dann an und regelst von Hand an den Ofenklappen, die App hält die Zuluftklappe auf 100 %. Nach dem gewählten Nachlegen (1–5, erkannt an der Türöffnung oder ohne Türkontakt am wieder steigenden Abgas) übernimmt die Automatik, die Aufzeichnung läuft still weiter, bis der Ofen kalt ist. Danach schlägt die App im Trend Punkte vor (Anheizen Max, Abbrand stabil, Bester Abbrand, Nachlegen/Glut, Abkühlen, von Hand: Zu heiß). Du verschiebst sie und übernimmst die daraus abgeleiteten Grenzwerte einzeln. Aufzeichnungen bleiben gespeichert und sind löschbar, eine ist maßgeblich. Nur im Betrieb. Während der Handregelung drosselt die App bei Übertemperatur nicht, sie meldet nur. Sie endet auch bei Abbrechen, ohne Feuer nach 60 min, bei kaltem Ofen, nach 8 h, beim Wechsel auf Lauschen und nach einem Neustart der App.

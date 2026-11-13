@@ -92,7 +92,7 @@ function betriebKarte(s) {
     !b.watchdog_zugewiesen && !b.ohne_watchdog_bestaetigt && haken("ohne_watchdog", "Es ist kein Watchdog zugewiesen. Ich bestätige, dass die Klappe bei einem Ausfall nicht schließen kann."),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: () => betriebSenden("betrieb") }, "Betrieb einschalten"), " ", h("button", { klasse: "textknopf", onclick: () => { betriebWahl = null; aktualisieren(); } }, "Abbrechen")));
   const frageLauschen = betriebWahl === "lauschen" && h("div", { klasse: "betrieb-frage" },
-    h("p", {}, "Die Klappe fährt auf 100 %, danach steuert die App nichts mehr. Schalte die Automation wieder ein, wenn sie übernehmen soll."),
+    h("p", {}, "Die Klappe fährt auf 100 %, danach steuert die App nichts mehr. Hat die App die konkurrierende Automation ausgeschaltet, schaltet sie sie wieder ein."),
     h("p", { stil: "margin-top:10px" }, h("button", { klasse: "haupt", onclick: () => betriebSenden("lauschen") }, "Auf Lauschen schalten"), " ", h("button", { klasse: "textknopf", onclick: () => { betriebWahl = null; aktualisieren(); } }, "Abbrechen")));
   return h("div", { klasse: "karte", stil: (b.stoerung || (!aktiv && b.rueckfall)) ? "--farbe:var(--fehler)" : null },
     h("div", { klasse: "betrieb-kopf" },

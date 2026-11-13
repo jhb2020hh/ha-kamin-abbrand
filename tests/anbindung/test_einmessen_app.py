@@ -714,3 +714,31 @@ def test_rueckfall_waehrend_der_handregelung_beendet_sie(tmp_path, stoerung):
                 assert app.einmess_ablage.kopf(kennung)["ende_grund"] == "lauschen"
 
     asyncio.run(ablauf())
+
+
+def test_fremdes_schreiben_aendert_die_100_prozent_beim_einmessen_nicht(tmp_path):
+    """Live am 13.11.: Die Automation schrieb alle 30 s ihren Reglerwert auf denselben Helfer, die Klappe pendelte."""
+    helfer = "input_number.kamin_abbrand_klappe_soll"
+
+    def gesendet(ha):
+        return [k["value"] for d, k in ha.schaltbefehle() if d == "input_number.set_value" and k["entity_id"] == helfer]
+
+    async def ablauf():
+        async with FakeHa() as ha:
+            kalt_anlage(ha)
+            zeit = [time.time()]
+            s = betrieb_speicher(tmp_path, ausgang_klappe=helfer, konkurrierende_automation=None)
+            async with einmess_app(ha, tmp_path, zeit, speicher=s) as app:
+                await app.einmessen_starten(1, False, "")
+                for _, t, offen in abbrand(1)[:20]:
+                    await schritt(app, ha, zeit, t, offen)
+                assert app.einmessen_handregelung and gesendet(ha)[-1] == 100
+                for wert in ("47.0", "52.0", "38.0"):
+                    vorher = len(gesendet(ha))
+                    await ha.aendern(helfer, wert, zeit=zeit[0])
+                    await warte_auf(lambda: len(gesendet(ha)) == vorher + 1)
+                    await schritt(app, ha, zeit, 120)
+                assert set(gesendet(ha)) == {100} and app.ausgaenge.gesendet == 100
+                assert sum("von außen überschrieben" in m["text"] for m in app.meldungen) == 1
+
+    asyncio.run(ablauf())

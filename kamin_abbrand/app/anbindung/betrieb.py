@@ -31,8 +31,11 @@ class Punkt:
         return {"schluessel": self.schluessel, "text": self.text}
 
 
-def offene_punkte(app: Any, jetzt: float) -> list[Punkt]:
-    """Leer heißt: Betrieb erlaubt. Liest nur, ändert nichts."""
+def offene_punkte(app: Any, jetzt: float, start: bool = False) -> list[Punkt]:
+    """Leer heißt: Betrieb erlaubt. Liest nur, ändert nichts.
+
+    `start`: Prüfung vor dem Wechsel auf Betrieb. Eine eingeschaltete konkurrierende Automation zählt dann nicht,
+    die App schaltet sie beim Wechsel selbst aus (main.App.betrieb_anfordern). Im laufenden Betrieb muss sie aus sein."""
     s = app.speicher
     if s is None:
         return [Punkt("einstellungen", "Die Einstellungen der App fehlen.")]
@@ -62,9 +65,12 @@ def offene_punkte(app: Any, jetzt: float) -> list[Punkt]:
     automation = rollen.get("konkurrierende_automation")
     if automation:
         wert = ein.wert(automation)
-        if wert != "off":
-            offen.append(Punkt("automation", "Die konkurrierende Automation muss aus sein. Abschalten musst du sie selbst.",
-                               hart=wert == "on"))
+        if wert == "on" and not start:
+            offen.append(Punkt("automation", "Die konkurrierende Automation ist eingeschaltet und ließ sich nicht "
+                                             "wieder ausschalten."))
+        elif wert not in ("on", "off"):
+            offen.append(Punkt("automation", "Der Zustand der konkurrierenden Automation ist nicht lesbar. "
+                                             "Sie muss aus sein, damit sie die Klappe nicht überschreibt.", hart=False))
 
     if not rollen.get("ausgang_heartbeat") and not s.ohne_watchdog_bestaetigt:
         offen.append(Punkt("watchdog", "Watchdog zuweisen oder bestätigen, dass die Klappe bei einem Ausfall nicht schließen kann."))

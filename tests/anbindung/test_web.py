@@ -568,7 +568,7 @@ async def _ohne_watchdog(ober, app, ha):
 @pytest.mark.parametrize("stoeren, schluessel", [
     (_ohne_motor, "motorisiert"), (_ohne_klappe, "klappe"), (_klappe_weg, "klappe_erreichbar"), (_ohne_abgas, "abgas"),
     (_abgas_weg, "abgas_frisch"), (_abgas_unplausibel, "abgas_frisch"), (_abgas_alt, "abgas_frisch"), (_getrennt, "verbunden"),
-    (_neu_fehlt, "neu"), (_automation_an, "automation"), (_automation_unbekannt, "automation"), (_ohne_watchdog, "watchdog"),
+    (_neu_fehlt, "neu"), (_automation_unbekannt, "automation"), (_ohne_watchdog, "watchdog"),
 ])
 def test_jede_bedingung_sperrt_einzeln(stoeren, schluessel):
     async def p(ober, _, app, ha, tmp):
@@ -583,6 +583,48 @@ def test_jede_bedingung_sperrt_einzeln(stoeren, schluessel):
         status = await (await ober.get("/api/status")).json()
         assert status["beobachtung"] is True and status["modus"] == "lauschen"
         assert schluessel in [x["schluessel"] for x in status["betrieb"]["offene_punkte"]]
+    mit_web(p)
+
+
+def test_eingeschaltete_automation_schaltet_die_app_beim_wechsel_aus_und_bei_lauschen_an():
+    async def p(ober, _, app, ha, tmp):
+        await bereit_machen(ober, app, ha)
+        await _automation_an(ober, app, ha)
+        status = await (await ober.get("/api/status")).json()
+        assert "automation" not in [x["schluessel"] for x in status["betrieb"]["offene_punkte"]]
+        r = await einschalten(ober)
+        assert r.status == 200 and app.modus == "betrieb"
+        assert ha.automationsbefehle() == [("turn_off", AUTO)] and app.eingaenge.wert(AUTO) == "off"
+        assert app.speicher.automation_von_app_aus
+        r = await ober.post("/api/betrieb", json={"modus": "lauschen"})
+        assert r.status == 200 and app.modus == "lauschen"
+        assert ha.automationsbefehle() == [("turn_off", AUTO), ("turn_on", AUTO)] and not app.speicher.automation_von_app_aus
+    mit_web(p)
+
+
+def test_automation_laesst_sich_nicht_ausschalten_meldet_die_oberflaeche():
+    async def p(ober, _, app, ha, tmp):
+        await bereit_machen(ober, app, ha)
+        await _automation_an(ober, app, ha)
+        ha.automation_folgt = False
+        app._automation_warten_s = 0.2
+        r = await einschalten(ober)
+        assert r.status == 400 and (await r.json())["fehler"].startswith(f"Die Automation {AUTO} ließ sich nicht ausschalten.")
+        assert app.modus == "lauschen" and app.speicher.modus == "lauschen" and not app.client.betrieb_aktiv
+        assert ha.automationsbefehle() == [("turn_off", AUTO), ("turn_on", AUTO)]
+        assert [d for d, _ in ha.schaltbefehle() if not d.startswith("automation.")] == []
+    mit_web(p)
+
+
+def test_klappe_als_helfer_ohne_automation_ist_nur_ein_hinweis():
+    async def p(ober, _, app, ha, tmp):
+        await bereit_machen(ober, app, ha, ausgang_klappe="input_number.kamin_abbrand_klappe_soll", konkurrierende_automation=None)
+        hinweise = (await (await ober.get("/api/rollen")).json())["hinweise"]
+        assert any(x["text"].startswith("Konkurrierende Automation zuweisen") for x in hinweise)
+        status = await (await ober.get("/api/status")).json()
+        assert [x["schluessel"] for x in status["betrieb"]["offene_punkte"]] == ["bestaetigung"]
+        assert any("Konkurrierende" in x["text"] for x in status["einrichtung"])
+        assert (await einschalten(ober)).status == 200
     mit_web(p)
 
 

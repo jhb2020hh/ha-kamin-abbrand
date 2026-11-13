@@ -64,6 +64,8 @@ EINSTELLUNGEN_PFAD = Path("/config/einstellungen.json")
 START_OHNE_HELFER_NACH_S = 60.0
 _WECHSEL = "_wechsel"
 _AUFTRAG = "_auftrag"
+_AUTOMATION = "_automation"         # Konkurrierende Automation abgleichen: im Betrieb aus, sonst nach Merker wieder an
+_KLAPPE_FREMD = "_klappe_fremd"     # Jemand anderes hat Klappe Soll beschrieben: einmal neu senden
 # Wie lange eine vorübergehende Bedingung fehlen darf, bevor die App zurückfällt.
 # Eine kurze Funkpause soll nicht jedes Mal den Betrieb beenden; danach gilt Klappe 100 %.
 BEDINGUNG_KARENZ_S = 30.0
@@ -74,6 +76,9 @@ AUFTRAG_TIMEOUT_S = 20.0
 ZUSTAND_SICHERN_S = 30.0
 _BETRIEB_PHASEN = (ANHEIZEN, ABBRAND, AUSBRAND)
 _BETRIEB_SPEICHERN_S = 300.0
+AUTOMATION_WARTEN_S = 10.0      # So lange wartet der Wechsel auf Betrieb, bis die Automation „off“ meldet
+FREMD_FENSTER_S = 600.0         # Fremdes Schreiben auf Klappe Soll: mehr als FREMD_VIELE in diesem Fenster
+FREMD_VIELE = 20
 WASSER_ERINNERUNG_S = 900.0
 # Nur diese Kern-Meldungen sind Störungen. Die übrigen (Glutphase, Wartung, „Messwerte wieder da“)
 # gehören zum Normalbetrieb und gehen nicht als Störung raus.
@@ -120,6 +125,7 @@ class App:
         speicher: Optional[Speicher] = None,
         start_ohne_helfer_nach_s: float = START_OHNE_HELFER_NACH_S,
         karenz_s: float = BEDINGUNG_KARENZ_S,
+        automation_warten_s: float = AUTOMATION_WARTEN_S,
     ) -> None:
         self.eingaenge = eingaenge
         self.speicher = speicher
@@ -164,6 +170,11 @@ class App:
             lambda: self.speicher.rollen if self.speicher else {},
             self.klappe_ist_prozent, self._kennlinie, self._attribute, self._ausgang_stoerung, uhr)
         self._karenz_s = karenz_s
+        self._automation_warten_s = automation_warten_s
+        self._automation_an_seit: Optional[float] = None
+        self._fremd_zeiten: deque[float] = deque()
+        self._fremd_gemeldet = False
+        self._fremd_viele_gemeldet = False
         self._betrieb = False
         self._anlaufschutz = False
         self._weg_seit: dict[str, float] = {}
@@ -205,10 +216,19 @@ class App:
         await self.schatten.status(
             STATUS_START if self._uebernommen else STATUS_WARTET, jetzt
         )
+        if self._automation_eid() and (self._betrieb or self.speicher.automation_von_app_aus):
+            # Nach dem Start oder einer Lücke: im Betrieb muss sie aus sein, im Lauschen wieder an.
+            self._warteschlange.put_nowait((_AUTOMATION, ()))
 
     async def _bei_ereignis(self, daten: dict) -> None:
         self._einmessen_tuer(daten)
-        for ausloeser in self.eingaenge.ereignis(daten, self._uhr()):
+        ausloeser_liste = self.eingaenge.ereignis(daten, self._uhr())
+        self._klappe_fremd_pruefen(daten)
+        eid = daten.get("entity_id")
+        if (self._betrieb and eid and eid == self._automation_eid()
+                and (daten.get("new_state") or {}).get("state") == "on"):
+            self._warteschlange.put_nowait((_AUTOMATION, ()))
+        for ausloeser in ausloeser_liste:
             self._warteschlange.put_nowait((ausloeser, BEIDE))
 
     async def _bei_trennung(self) -> None:
@@ -365,6 +385,15 @@ class App:
             if self.client.verbunden:
                 await self._wechseln()
             return
+        if ausloeser == _AUTOMATION:
+            if self.client.verbunden:
+                await self._automation_abgleichen(self._uhr())
+            return
+        if ausloeser == _KLAPPE_FREMD:
+            if self._betrieb and self.client.verbunden and self.ausgaenge.gesendet is not None:
+                # Das aktuelle Soll, auch beim Einmessen (100 %) oder im Anlaufschutz.
+                await self.ausgaenge.klappe(self.ausgaenge.gesendet, self._uhr(), zwingen=True)
+            return
         if not self._uebernommen and self.client.verbunden:
             self._ohne_helfer_starten(self._uhr())
         if not self._uebernommen or not self.client.verbunden:
@@ -497,6 +526,9 @@ class App:
         self._oeffnen_bis = None
         self.ausgaenge.zuruecksetzen()
         self.client.betrieb_freigeben(zugewiesene_ausgaenge(self.speicher.rollen))
+        self._automation_an_seit = None
+        self._fremd_zeiten.clear()
+        self._fremd_gemeldet = self._fremd_viele_gemeldet = False
 
     async def _betrieb_pruefen(self, jetzt: float) -> None:
         """Fällt eine Bedingung im Lauf weg, geht die App zurück auf Lauschen und öffnet die Klappe."""
@@ -508,10 +540,14 @@ class App:
             if weg >= self._karenz_s:
                 await self._zurueckfallen(f"Die Verbindung zu Home Assistant war {weg:.0f} s unterbrochen.")
                 return
+        await self._automation_im_betrieb(jetzt)
         offen = offene_punkte(self, jetzt)
         schluessel = {p.schluessel for p in offen}
         self._weg_seit = {k: v for k, v in self._weg_seit.items() if k in schluessel}
         for punkt in offen:
+            if (punkt.schluessel == "automation" and self._automation_an_seit is not None
+                    and jetzt - self._automation_an_seit < self._karenz_s):
+                continue    # Die App hat sie eben wieder ausgeschaltet, nach der Karenz gilt die harte Prüfung.
             if punkt.hart or jetzt - self._weg_seit.setdefault(punkt.schluessel, jetzt) >= self._karenz_s:
                 await self._zurueckfallen(punkt.text)
                 return
@@ -545,7 +581,126 @@ class App:
             self.client.betrieb_freigeben([klappe])
             self._oeffnen_bis = jetzt + RUECKFALL_OEFFNEN_S
         self._einmessen_beenden(self._uhr(), einmess.ENDE_LAUSCHEN)
+        try:
+            await self._automation_zurueckgeben()
+        except Exception:
+            log.exception("Konkurrierende Automation nicht wieder eingeschaltet")
         return offen
+
+    # ---- Konkurrierende Automation ----------------------------------
+    # Die App schaltet sie beim Wechsel auf Betrieb aus und merkt sich das (Speicher.automation_von_app_aus).
+    # Beim Verlassen des Betriebs, auch bei jedem Rückfall, schaltet sie sie wieder ein.
+
+    def _automation_eid(self) -> Optional[str]:
+        return self.speicher.rollen.get("konkurrierende_automation") if self.speicher is not None else None
+
+    async def _automation_schalten(self, eid: str, an: bool) -> None:
+        self.client.automation_freigeben(eid)
+        await self.client.automation_schalten(eid, an)
+
+    def _automation_merken(self, von_app_aus: bool) -> None:
+        try:
+            self.speicher.automation_merken(von_app_aus)
+        except EinstellungsFehler:
+            log.error("Merker der Automation nicht gespeichert, er gilt bis zum Neustart")
+
+    def _betrieb_melden(self, text: str, jetzt: float) -> None:
+        log.warning(text)
+        self.meldungen.appendleft({"zeit": jetzt, "text": text})
+        self.benachrichtiger.melden("betrieb", text)
+
+    async def _automation_vor_betrieb(self) -> None:
+        """Ist sie an, wird sie ausgeschaltet. Meldet sie nicht rechtzeitig „off“, bleibt die App im Lauschen
+        (EinstellungsFehler) und die Automation wird wieder eingeschaltet, damit die Klappe nicht ohne Regelung bleibt."""
+        eid = self._automation_eid()
+        if not eid or self.eingaenge.wert(eid) != "on":
+            return
+        try:
+            await self._automation_schalten(eid, False)
+            async with asyncio.timeout(self._automation_warten_s):
+                while self.eingaenge.wert(eid) != "off":
+                    await asyncio.sleep(0.05)
+        except Exception as fehler:
+            log.error("Automation %s nicht ausgeschaltet: %r", eid, fehler)
+            try:
+                await self._automation_schalten(eid, True)
+            except Exception as zweiter:
+                log.error("Automation %s nicht wieder eingeschaltet: %r", eid, zweiter)
+            raise EinstellungsFehler(f"Die Automation {eid} ließ sich nicht ausschalten. "
+                                     "Die App bleibt im Lauschen.") from fehler
+        self._automation_merken(True)
+        log.warning("Automation %s ausgeschaltet, die App übernimmt die Klappe", eid)
+
+    async def _automation_im_betrieb(self, jetzt: float) -> None:
+        """Im Betrieb wieder eingeschaltet: einmal ausschalten und melden. Bleibt sie an, gilt nach der
+        Karenz die harte Prüfung in offene_punkte und die App fällt zurück."""
+        eid = self._automation_eid()
+        if not eid or self.eingaenge.wert(eid) != "on":
+            self._automation_an_seit = None
+            return
+        if self._automation_an_seit is not None:
+            return
+        self._automation_an_seit = jetzt
+        self._betrieb_melden(f"Die konkurrierende Automation {eid} ist im Betrieb eingeschaltet. "
+                             "Die App schaltet sie wieder aus.", jetzt)
+        try:
+            await self._automation_schalten(eid, False)
+        except Exception as fehler:
+            log.error("Automation %s nicht ausgeschaltet: %r", eid, fehler)
+            return
+        self._automation_merken(True)
+
+    async def _automation_zurueckgeben(self) -> None:
+        """Wieder einschalten, wenn die App sie ausgeschaltet hat. Ein Fehler wird gemeldet und hält nichts auf;
+        der Merker bleibt dann stehen und beim nächsten Verbinden versucht die App es erneut."""
+        self._automation_an_seit = None
+        if self.speicher is None or not self.speicher.automation_von_app_aus:
+            return
+        eid = self._automation_eid()
+        jetzt = self._uhr()
+        if eid:
+            try:
+                await self._automation_schalten(eid, True)
+            except Exception as fehler:
+                log.error("Automation %s nicht eingeschaltet: %r", eid, fehler)
+                self._betrieb_melden(f"Die Automation {eid} ließ sich nicht wieder einschalten. "
+                                     "Bitte in Home Assistant prüfen.", jetzt)
+                return
+            log.warning("Automation %s wieder eingeschaltet", eid)
+            self.meldungen.appendleft({"zeit": jetzt, "text": f"Die Automation {eid} ist wieder eingeschaltet."})
+        self._automation_merken(False)
+
+    async def _automation_abgleichen(self, jetzt: float) -> None:
+        if self._betrieb:
+            await self._automation_im_betrieb(jetzt)
+        else:
+            await self._automation_zurueckgeben()
+
+    def _klappe_fremd_pruefen(self, daten: dict) -> None:
+        """Schreibt jemand anderes auf Klappe Soll, sendet die App ihr Soll einmal je Ereignis neu."""
+        if not self._betrieb or self.speicher is None:
+            return
+        eid = daten.get("entity_id")
+        jetzt = self._uhr()
+        wert = self.ausgaenge.fremder_wert(eid, daten.get("new_state"), jetzt)
+        if wert is None:
+            return
+        log.warning("%s von außen auf %.1f gesetzt, die App sendet %s %% neu", eid, wert, self.ausgaenge.gesendet)
+        self._warteschlange.put_nowait((_KLAPPE_FREMD, ()))
+        zeiten = self._fremd_zeiten
+        zeiten.append(jetzt)
+        while zeiten and jetzt - zeiten[0] > FREMD_FENSTER_S:
+            zeiten.popleft()
+        if not self._fremd_gemeldet:
+            self._fremd_gemeldet = True
+            self._betrieb_melden(f"Klappe Soll wird von außen überschrieben ({eid}). "
+                                 "Prüfe Automationen, die diesen Helfer schreiben.", jetzt)
+        if len(zeiten) > FREMD_VIELE and not self._fremd_viele_gemeldet:
+            self._fremd_viele_gemeldet = True
+            rat = ("Prüfe, ob die richtige konkurrierende Automation zugewiesen ist." if self._automation_eid() else
+                   "Weise unter Ein-/Ausgänge die konkurrierende Automation zu, dann schaltet die App sie im Betrieb aus.")
+            self._betrieb_melden(f"Klappe Soll wurde in {FREMD_FENSTER_S / 60:.0f} min mehr als {FREMD_VIELE}-mal "
+                                 f"von außen überschrieben ({eid}). {rat}", jetzt)
 
     # ---- Handbetrieb -------------------------------------------------
 
@@ -848,10 +1003,16 @@ class App:
             self.speicher.bestaetigung_speichern(bestaetigung, jetzt, version)
             if self._betrieb:
                 return []
-            offen = offene_punkte(self, jetzt)
+            offen = offene_punkte(self, jetzt, start=True)
             if offen:
                 return offen
-            self.speicher.modus_setzen(BETRIEB)
+            await self._automation_vor_betrieb()
+            jetzt = self._uhr()
+            try:
+                self.speicher.modus_setzen(BETRIEB)
+            except EinstellungsFehler:
+                await self._automation_zurueckgeben()
+                raise
             self._betrieb_aufnehmen()
             # Der Kern hat bis hierher nur mitgerechnet, also gilt derselbe Schutz wie beim Start.
             self._anlaufschutz = True

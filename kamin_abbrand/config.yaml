@@ -1,5 +1,5 @@
 name: "Kamin Abbrand"
-version: "0.4.0"
+version: "0.4.1"
 slug: kamin_abbrand
 url: "https://github.com/jhb2020hh/ha-kamin-abbrand"
 description: "Abbrandüberwachung und Klappensteuerung für den Kaminofen, mit Kostenvergleich und Wasserseite. Startet im Modus Lauschen."

@@ -3,7 +3,8 @@ import asyncio
 
 import pytest
 
-from anbindung.ausgaenge import (Ausgaenge, begrenzen, klappen_befehl, zugewiesene_ausgaenge)
+from anbindung.ausgaenge import (Ausgaenge, befehlswert_aus_zustand, begrenzen, klappen_befehl,
+                                 zugewiesene_ausgaenge)
 from kern.typen import AKTION_SNIFFER_RESTART, AKTION_WARTUNG_AUS
 
 ROLLEN = {"ausgang_klappe": "cover.k", "ausgang_heartbeat": "number.hb", "ausgang_neustart": "button.n",
@@ -217,3 +218,48 @@ def test_stoerung_quittieren_setzt_zurueck_und_meldet_erneut():
             await s.a.klappe(40, 1010 + t)
         assert len(s.stoerungen) == 2
     lauf(ablauf())
+
+
+# ---- Fremdes Schreiben auf den Klappenausgang --------------------------------------
+
+@pytest.mark.parametrize("eid, zustand, attribute, erwartet", [
+    ("input_number.k", "40.0", {}, 40.0),
+    ("number.k", "7", {}, 7.0),
+    ("light.k", "off", {}, 0.0),
+    ("light.k", "on", {"brightness": 255}, 100.0),
+    ("light.k", "on", {}, None),
+    ("input_number.k", "unavailable", {}, None),
+    ("cover.k", "open", {"current_position": 40}, None),    # Iststellung, fährt langsam nach
+])
+def test_befehlswert_aus_zustand(eid, zustand, attribute, erwartet):
+    assert befehlswert_aus_zustand(eid, {"state": zustand, "attributes": attribute}) == erwartet
+
+
+@pytest.mark.parametrize("invertiert, y0", [(False, 0.0), (True, 0.0), (False, 2.0), (True, 9.5)])
+def test_fremder_wert_nach_derselben_umrechnung_wie_beim_senden(invertiert, y0):
+    for eid in ("input_number.k", "light.k"):
+        st = Stand(rollen={"ausgang_klappe": eid}, invertiert=invertiert, y0=y0)
+        assert st.a.fremder_wert(eid, {"state": "40"}, st.jetzt) is None       # noch nichts gesendet
+        lauf(st.a.klappe(63, st.jetzt))
+        _, _, daten = st.aufrufe[-1]
+        if eid.startswith("light."):
+            echo = {"state": "on", "attributes": {"brightness": round(daten["brightness_pct"] * 255 / 100)}}
+            fremd = {"state": "on", "attributes": {"brightness": round(min(daten["brightness_pct"] + 5, 100) * 255 / 100)
+                                                   if daten["brightness_pct"] < 95 else 100}}
+        else:
+            echo = {"state": f"{daten['value']}.0"}
+            fremd = {"state": str(daten["value"] + 5)}
+        assert st.a.fremder_wert(eid, echo, st.jetzt) is None
+        assert st.a.fremder_wert(eid, fremd, st.jetzt) is not None
+        assert st.a.fremder_wert("input_number.anders", {"state": "1"}, st.jetzt) is None
+
+
+def test_echo_eines_eben_ueberholten_befehls_zaehlt_nicht():
+    st = Stand(rollen={"ausgang_klappe": "input_number.k"})
+    lauf(st.a.klappe(60, st.jetzt))
+    lauf(st.a.klappe(70, st.jetzt + 1))
+    assert st.a.fremder_wert("input_number.k", {"state": "60.0"}, st.jetzt + 2) is None
+    assert st.a.fremder_wert("input_number.k", {"state": "60.0"}, st.jetzt + 30) == 60.0
+    assert st.a.fremder_wert("input_number.k", {"state": "70.6"}, st.jetzt + 30) is None   # bis 1 %-Punkt
+    st.a.vergessen()
+    assert st.a.fremder_wert("input_number.k", {"state": "10"}, st.jetzt + 30) is None

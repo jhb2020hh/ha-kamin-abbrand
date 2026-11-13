@@ -21,7 +21,7 @@ In den Betrieb schaltet die App erst, wenn alle Bedingungen erfüllt sind. Was n
 
 - Die Klappe ist unter Anlage als motorisiert eingetragen, „Klappe Soll“ ist zugewiesen und erreichbar.
 - Der Abgasfühler liefert einen frischen, plausiblen Wert, Home Assistant ist verbunden, und der Regelstand `neu` liefert Ergebnisse.
-- Eine als „Konkurrierende Automation“ zugewiesene Automation ist aus. **Die App schaltet sie nicht ab.** Zwei Regler auf derselben Klappe arbeiten gegeneinander. Hast du mehrere Automationen, die die Klappe bewegen, schalte alle selbst ab; überwacht wird nur die zugewiesene.
+- Eine als „Konkurrierende Automation“ zugewiesene Automation schaltet die App beim Wechsel auf Betrieb selbst aus und bei Lauschen oder einem Rückfall wieder an. Lässt sie sich nicht ausschalten, bleibt die App im Lauschen. Zwei Regler auf derselben Klappe arbeiten gegeneinander: Gibt es weitere Automationen, die die Klappe bewegen, schalte sie selbst ab. Schreibt im Betrieb trotzdem etwas in den Klappen-Ausgang, stellt die App sofort ihren Wert wieder her und meldet das.
 - Ein Watchdog ist zugewiesen, oder du bestätigst, dass die Klappe bei einem Ausfall nicht schließen kann.
 - Du bestätigst einmalig: CO-Melder vorhanden, Betrieb mit Hersteller oder Schornsteinfeger geklärt, Nutzung auf eigene Verantwortung.
 

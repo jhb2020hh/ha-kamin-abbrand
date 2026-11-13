@@ -547,7 +547,7 @@ def test_fehler_im_regellauf_ausserhalb_des_kerns_faellt_zurueck(tmp_path):
     asyncio.run(ablauf())
 
 
-def test_automation_an_faellt_sofort_zurueck(tmp_path):
+def test_automation_im_betrieb_eingeschaltet_wird_wieder_ausgeschaltet_und_gemeldet(tmp_path):
     async def ablauf():
         async with FakeHa() as ha:
             anlage_setzen(ha)
@@ -555,7 +555,36 @@ def test_automation_an_faellt_sofort_zurueck(tmp_path):
             async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s, karenz_s=3600.0) as app:
                 await warte_auf(lambda: klappenbefehle(ha))
                 await ha.aendern(AUTOMATION, "on")
+                await warte_auf(lambda: ("turn_off", AUTOMATION) in ha.automationsbefehle())
+                await warte_auf(lambda: app.eingaenge.wert(AUTOMATION) == "off")
+                await asyncio.sleep(0.08)
+                assert app.im_betrieb and app.rueckfall is None and s.automation_von_app_aus
+                assert ha.automationsbefehle() == [("turn_off", AUTOMATION)]
+                assert any("ist im Betrieb eingeschaltet" in m["text"] for m in app.meldungen)
+                await app.benachrichtiger.abwarten()
+                assert any(d == HANDY and "wieder aus" in k["message"] for d, k in ha.gesendet())
+
+    asyncio.run(ablauf())
+
+
+def test_automation_bleibt_im_betrieb_an_faellt_nach_der_karenz_zurueck(tmp_path):
+    async def ablauf():
+        uhr = [time.time()]
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            ha.automation_folgt = False
+            s = betrieb_speicher(tmp_path)
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s, uhr=lambda: uhr[0], karenz_s=30.0) as app:
+                await warte_auf(lambda: klappenbefehle(ha))
+                await ha.aendern(AUTOMATION, "on")
+                await warte_auf(lambda: ha.automationsbefehle() == [("turn_off", AUTOMATION)])
+                await asyncio.sleep(0.08)
+                assert app.im_betrieb and ha.automationsbefehle() == [("turn_off", AUTOMATION)]   # nur einmal
+                uhr[0] += 31
                 await rueckfall_abwarten(app, ha, s)
+                assert "eingeschaltet" in app.rueckfall["grund"]
+                # Die App hatte sie ausgeschaltet, also schaltet der Rückfall sie wieder ein.
+                assert ha.automationsbefehle()[-1] == ("turn_on", AUTOMATION) and not s.automation_von_app_aus
 
     asyncio.run(ablauf())
 
@@ -613,7 +642,7 @@ def test_klappe_nicht_erreichbar_beim_rueckfall_wird_nachgeholt_und_dann_gesperr
         async with FakeHa() as ha:
             anlage_setzen(ha)
             s = betrieb_speicher(tmp_path)
-            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s) as app:
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s, karenz_s=0.0) as app:
                 await warte_auf(lambda: klappenbefehle(ha))
                 ha.dienst_status = 500
                 await ha.aendern(AUTOMATION, "on")
@@ -765,11 +794,27 @@ def test_neustart_ohne_gueltige_bedingungen_faellt_zurueck(tmp_path):
     async def ablauf():
         async with FakeHa() as ha:
             anlage_setzen(ha)
+            ha.setzen(KLAPPE, "unavailable")
+            s = betrieb_speicher(tmp_path)
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s, karenz_s=0.0) as app:
+                await warte_auf(lambda: app.rueckfall)
+                assert not app.im_betrieb and s.modus == "lauschen"
+                assert len(klappenbefehle(ha)) <= 3
+
+    asyncio.run(ablauf())
+
+
+def test_neustart_im_betrieb_schaltet_eine_eingeschaltete_automation_wieder_aus(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
             ha.setzen(AUTOMATION, "on")
             s = betrieb_speicher(tmp_path)
-            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s) as app:
-                await rueckfall_abwarten(app, ha, s)
-                assert len(klappenbefehle(ha)) <= 3
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s, karenz_s=3600.0) as app:
+                await warte_auf(lambda: ("turn_off", AUTOMATION) in ha.automationsbefehle())
+                await warte_auf(lambda: klappenbefehle(ha))
+                assert app.im_betrieb and s.automation_von_app_aus and ha.zustaende[AUTOMATION]["state"] == "off"
+                assert ("turn_on", AUTOMATION) not in ha.automationsbefehle()
 
     asyncio.run(ablauf())
 
@@ -992,3 +1037,221 @@ def test_klappe_ist_in_volt_wird_fuer_anzeige_und_abweichung_umgerechnet(tmp_pat
     assert app.klappe_ist_prozent("sensor.rueckmeldung") == pytest.approx(48.16, abs=0.01)
     # Die Abweichungsprüfung der Ausgänge bekommt Prozent, nicht Volt.
     assert app.ausgaenge._stellung("sensor.rueckmeldung") == pytest.approx(48.16, abs=0.01)
+
+
+# ---- Konkurrierende Automation und fremdes Schreiben auf Klappe Soll -------------
+
+KLAPPE_HELFER = "input_number.kamin_abbrand_klappe_soll"
+
+
+async def betrieb_mit_automation(app, ha, s):
+    """Lauschen mit eingeschalteter Automation, dann auf Betrieb: Die App schaltet sie aus und merkt sich das."""
+    await ha.aendern(AUTOMATION, "on")
+    await warte_auf(lambda: app.eingaenge.wert(AUTOMATION) == "on" and NEU in app.letzte)
+    assert await app.betrieb_anfordern(BESTAETIGT, VERSION) == []
+    assert app.im_betrieb and ha.automationsbefehle() == [("turn_off", AUTOMATION)]
+    assert app.eingaenge.wert(AUTOMATION) == "off" and s.automation_von_app_aus
+    assert json.loads(s.pfad.read_text())["automation_von_app_aus"] is True
+
+
+def test_wechsel_auf_betrieb_schaltet_die_automation_aus_und_lauschen_wieder_an(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            s = betrieb_speicher(tmp_path, modus="lauschen")
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s) as app:
+                await betrieb_mit_automation(app, ha, s)
+                await warte_auf(lambda: klappenbefehle(ha))
+                await asyncio.sleep(0.08)
+                assert app.im_betrieb and app.meldungen and ha.automationsbefehle() == [("turn_off", AUTOMATION)]
+                assert await app.lauschen_anfordern() is True
+                assert ha.automationsbefehle() == [("turn_off", AUTOMATION), ("turn_on", AUTOMATION)]
+                # Erst die Klappe auf, dann die Automation an.
+                pfade = [p for _, p, _ in ha.rest_anfragen]
+                letzte_klappe = max(i for i, p in enumerate(pfade) if "set_cover_position" in p)
+                assert letzte_klappe < pfade.index("/core/api/services/automation/turn_on")
+                assert not s.automation_von_app_aus and json.loads(s.pfad.read_text())["automation_von_app_aus"] is False
+                await warte_auf(lambda: app.eingaenge.wert(AUTOMATION) == "on")
+
+    asyncio.run(ablauf())
+
+
+def test_automation_laesst_sich_nicht_ausschalten_dann_kein_betrieb(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            ha.automation_folgt = False
+            s = betrieb_speicher(tmp_path, modus="lauschen")
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s, automation_warten_s=0.2) as app:
+                await ha.aendern(AUTOMATION, "on")
+                await warte_auf(lambda: app.eingaenge.wert(AUTOMATION) == "on" and NEU in app.letzte)
+                with pytest.raises(EinstellungsFehler, match="automation.steuerung ließ sich nicht ausschalten"):
+                    await app.betrieb_anfordern(BESTAETIGT, VERSION)
+                assert not app.im_betrieb and s.modus == "lauschen" and not app.client.betrieb_aktiv
+                assert not s.automation_von_app_aus
+                # Nicht halb aus stehen lassen: Sie wird zurückgeschaltet, eine Klappe wird nie gestellt.
+                assert ha.automationsbefehle() == [("turn_off", AUTOMATION), ("turn_on", AUTOMATION)]
+                assert klappenbefehle(ha) == []
+
+    asyncio.run(ablauf())
+
+
+@pytest.mark.parametrize("stoerung", ["kern", "verbindung"])
+def test_rueckfall_schaltet_die_automation_wieder_ein(tmp_path, stoerung):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            fabrik = StubFabrik()
+            s = betrieb_speicher(tmp_path, modus="lauschen")
+            async with betriebs_app(ha, tmp_path, fabrik, speicher=s) as app:
+                await betrieb_mit_automation(app, ha, s)
+                await warte_auf(lambda: klappenbefehle(ha))
+                if stoerung == "kern":
+                    def kaputt(_):
+                        raise RuntimeError("Kern kaputt")
+                    fabrik.instanz(NEU).verhalten = kaputt
+                else:
+                    app._getrennt_seit = time.time() - 45
+                await rueckfall_abwarten(app, ha, s)
+                assert ha.automationsbefehle()[-1] == ("turn_on", AUTOMATION) and not s.automation_von_app_aus
+
+    asyncio.run(ablauf())
+
+
+def test_einschalten_scheitert_beim_rueckfall_wird_gemeldet_und_beim_naechsten_verbinden_nachgeholt(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            fabrik = StubFabrik()
+            s = betrieb_speicher(tmp_path, modus="lauschen")
+            async with betriebs_app(ha, tmp_path, fabrik, speicher=s) as app:
+                await betrieb_mit_automation(app, ha, s)
+                await warte_auf(lambda: klappenbefehle(ha))
+                echt = app.client.automation_schalten
+
+                async def kaputt(*_):
+                    raise RuntimeError("HA weg")
+                app.client.automation_schalten = kaputt
+
+                def kern_kaputt(_):
+                    raise RuntimeError("Kern kaputt")
+                fabrik.instanz(NEU).verhalten = kern_kaputt
+                await rueckfall_abwarten(app, ha, s)     # Der Rückfall geht trotzdem durch.
+                assert s.automation_von_app_aus
+                await app.benachrichtiger.abwarten()
+                assert any("nicht wieder einschalten" in k["message"] for _, k in ha.gesendet())
+                app.client.automation_schalten = echt
+                await ha.abbrechen()
+                await warte_auf(lambda: ("turn_on", AUTOMATION) in ha.automationsbefehle())
+                await warte_auf(lambda: not s.automation_von_app_aus)
+
+    asyncio.run(ablauf())
+
+
+def test_neustart_im_lauschen_mit_merker_schaltet_die_automation_ein(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            s = betrieb_speicher(tmp_path, modus="lauschen")
+            s.automation_merken(True)        # Absturz im Betrieb, der Modus stand schon auf Lauschen
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s) as app:
+                await warte_auf(lambda: ha.automationsbefehle() == [("turn_on", AUTOMATION)])
+                await warte_auf(lambda: not s.automation_von_app_aus)
+                assert not app.im_betrieb and Speicher(s.pfad).automation_von_app_aus is False
+
+    asyncio.run(ablauf())
+
+
+def test_neustart_im_betrieb_mit_merker_laesst_die_automation_aus(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            s = betrieb_speicher(tmp_path)
+            s.automation_merken(True)
+            fabrik = StubFabrik()
+            async with betriebs_app(ha, tmp_path, fabrik, speicher=s) as app:
+                await warte_auf(lambda: klappenbefehle(ha) and len(fabrik.instanz(NEU).laeufe) >= 3)
+                assert app.im_betrieb and s.automation_von_app_aus and ha.automationsbefehle() == []
+
+    asyncio.run(ablauf())
+
+
+def test_ohne_zugewiesene_automation_wie_bisher(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            s = betrieb_speicher(tmp_path, modus="lauschen", konkurrierende_automation=None)
+            assert "konkurrierende_automation" not in s.rollen
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s) as app:
+                await ha.aendern(AUTOMATION, "on")      # nicht zugewiesen, also egal
+                await warte_auf(lambda: NEU in app.letzte)
+                assert await app.betrieb_anfordern(BESTAETIGT, VERSION) == []
+                await warte_auf(lambda: klappenbefehle(ha))
+                assert await app.lauschen_anfordern() is True
+            assert ha.automationsbefehle() == [] and not s.automation_von_app_aus
+            assert all(not d.startswith("automation.") for d, _ in ha.schaltbefehle())
+
+    asyncio.run(ablauf())
+
+
+def helfer_befehle(ha):
+    return [k["value"] for d, k in ha.schaltbefehle() if d == "input_number.set_value" and k["entity_id"] == KLAPPE_HELFER]
+
+
+def von_aussen(app):
+    return [m["text"] for m in app.meldungen if "von außen überschrieben" in m["text"]]
+
+
+@pytest.mark.parametrize("automation", [AUTOMATION, None])
+def test_fremdes_schreiben_auf_klappe_soll_wird_sofort_ueberschrieben_und_einmal_gemeldet(tmp_path, automation):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            gesicherter_zustand(tmp_path, 10, klappe=62)
+            s = betrieb_speicher(tmp_path, ausgang_klappe=KLAPPE_HELFER, konkurrierende_automation=automation)
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s, takt_neu_s=3600.0, karenz_s=3600.0) as app:
+                await ha.aendern(E.tuer, "on")
+                await warte_auf(lambda: helfer_befehle(ha))
+                soll = helfer_befehle(ha)[-1]
+                assert app.ausgaenge.gesendet == soll
+                # Das eigene Echo zählt nicht.
+                await ha.aendern(KLAPPE_HELFER, f"{soll:.1f}")
+                await asyncio.sleep(0.05)
+                assert helfer_befehle(ha) == [soll] and von_aussen(app) == []
+                # Eine Automation schreibt ihren Reglerwert: sofort genau einmal neu senden.
+                await ha.aendern(KLAPPE_HELFER, "40.0")
+                await warte_auf(lambda: len(helfer_befehle(ha)) == 2)
+                await ha.aendern(KLAPPE_HELFER, f"{soll:.1f}")     # Echo des Nachsendens
+                await asyncio.sleep(0.05)
+                assert helfer_befehle(ha) == [soll, soll]
+                await ha.aendern(KLAPPE_HELFER, "45.0")
+                await warte_auf(lambda: len(helfer_befehle(ha)) == 3)
+                assert von_aussen(app) == [f"Klappe Soll wird von außen überschrieben ({KLAPPE_HELFER}). "
+                                           "Prüfe Automationen, die diesen Helfer schreiben."]
+                await app.benachrichtiger.abwarten()
+                assert sum("von außen überschrieben" in k["message"] for _, k in ha.gesendet()) == 1
+                # Mehr als 20 in 10 min: zusätzlich der Rat zur konkurrierenden Automation, auch nur einmal.
+                for i in range(22):
+                    await ha.aendern(KLAPPE_HELFER, f"{30 + i % 2}.0")
+                await warte_auf(lambda: len(helfer_befehle(ha)) == 25, timeout_s=15.0)
+                await asyncio.sleep(0.05)
+                assert len(helfer_befehle(ha)) == 25 and set(helfer_befehle(ha)) == {soll}
+                viele = [t for t in von_aussen(app) if "mehr als 20-mal" in t]
+                assert len(viele) == 1
+                assert ("richtige konkurrierende Automation" if automation else "konkurrierende Automation zu") in viele[0]
+                assert app.im_betrieb
+
+    asyncio.run(ablauf())
+
+
+def test_fremdes_schreiben_im_lauschen_wird_nicht_beachtet(tmp_path):
+    async def ablauf():
+        async with FakeHa() as ha:
+            anlage_setzen(ha)
+            s = betrieb_speicher(tmp_path, modus="lauschen", ausgang_klappe=KLAPPE_HELFER)
+            async with betriebs_app(ha, tmp_path, StubFabrik(), speicher=s) as app:
+                await ha.aendern(KLAPPE_HELFER, "40.0")
+                await asyncio.sleep(0.08)
+                assert ha.schaltbefehle() == [] and von_aussen(app) == []
+
+    asyncio.run(ablauf())

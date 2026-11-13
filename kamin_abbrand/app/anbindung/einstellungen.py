@@ -99,7 +99,8 @@ ROLLEN: tuple[Rolle, ...] = (
     Rolle("t_wt_anstieg", "Anstieg Wärmetauscher", "Leer lassen: Die App rechnet ihn selbst.",
           ("sensor",), ERWEITERT),
     Rolle("konkurrierende_automation", "Konkurrierende Automation",
-          "Automation, die die Klappe sonst steuert. Die App liest nur, ob sie aus ist. Abschalten musst du sie selbst.",
+          "Automation, die die Klappe sonst steuert. Die App schaltet sie beim Wechsel auf Betrieb aus "
+          "und bei Lauschen oder einem Rückfall wieder an.",
           ("automation",)),
     Rolle("ausgang_klappe", "Klappe Soll", "Hierhin schreibt die App im Betrieb die Klappenstellung.",
           _STELLGLIED, EMPFOHLEN, AUSGANG),
@@ -282,6 +283,8 @@ class Speicher:
             daten["wartung"] = {"basis_s": float(daten["betrieb_s"]), "letzte_reinigung": None, "erinnert": None}
         # Alles außer einem klaren „betrieb“ heißt Lauschen, auch eine verdorbene Datei.
         daten["modus"] = BETRIEB if daten.get("modus") == BETRIEB else LAUSCHEN
+        # Nur ein klares true: Dann hat die App die konkurrierende Automation ausgeschaltet und schaltet sie wieder ein.
+        daten["automation_von_app_aus"] = daten.get("automation_von_app_aus") is True
         if not isinstance(daten.get("betrieb_bestaetigung"), dict):
             daten["betrieb_bestaetigung"] = {}
         massgeblich = daten.get("einmessen_massgeblich")
@@ -418,6 +421,11 @@ class Speicher:
     @property
     def modus(self) -> str:
         return self.daten["modus"]
+
+    @property
+    def automation_von_app_aus(self) -> bool:
+        """True, solange die App die konkurrierende Automation ausgeschaltet hat und sie wieder einschalten muss."""
+        return self.daten["automation_von_app_aus"]
 
     @property
     def bestaetigung(self) -> dict:
@@ -561,6 +569,14 @@ class Speicher:
         except EinstellungsFehler:
             self.daten["modus"] = alt
             raise
+
+    def automation_merken(self, von_app_aus: bool) -> None:
+        """Sofort auf die Platte, damit auch ein Neustart weiß, ob die Automation wieder an muss.
+        Scheitert das Schreiben, bleibt der Merker im Speicher und es wirft EinstellungsFehler."""
+        if self.daten["automation_von_app_aus"] is bool(von_app_aus):
+            return
+        self.daten["automation_von_app_aus"] = bool(von_app_aus)
+        self.speichern()
 
     def bestaetigung_speichern(self, roh: Any, jetzt: float, version: str) -> None:
         """Merkt sich nur vollständige Angaben, mit Datum und Version. Bestehendes bleibt."""

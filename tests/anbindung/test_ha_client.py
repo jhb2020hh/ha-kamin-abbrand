@@ -172,10 +172,12 @@ def test_schreibsperre_wirft_und_nichts_erreicht_den_server(entity_id):
 
 def test_client_hat_keinen_weg_fuer_dienste():
     oeffentlich = {n for n in dir(HaClient) if not n.startswith("_")}
-    # Dazu kommen: Dienste lesen, notify.<name> senden und das Schalten im Betrieb, alle streng begrenzt (siehe unten).
+    # Dazu kommen: Dienste lesen, notify.<name> senden, das Schalten im Betrieb und die eine freigegebene
+    # Automation aus- und einschalten, alle streng begrenzt (siehe unten).
     assert oeffentlich == {"hole_zustaende", "hole_dienste", "laufen", "schliessen", "sende_notify",
                            "setze_schattensensor", "verbunden",
-                           "schalte", "betrieb_aktiv", "betrieb_freigeben", "betrieb_sperren"}
+                           "schalte", "betrieb_aktiv", "betrieb_freigeben", "betrieb_sperren",
+                           "automation_freigeben", "automation_freigegeben", "automation_schalten"}
 
 
 @pytest.mark.parametrize("befehl", ["call_service", "fire_event", "execute_script", "config/core/update"])
@@ -207,12 +209,14 @@ def test_quelltext_enthaelt_keinen_dienstaufruf():
             assert "kern.typen import AKTION" not in text, f"Aktionen in {pfad.name}"
         if pfad.name != "ha_client.py":
             assert "/services" not in text, f"/services in {pfad.name}"
-    # Im Client selbst gibt es genau drei Pfade: die Liste lesen, notify senden und schalte im Betrieb.
+    # Im Client selbst gibt es genau vier Pfade: die Liste lesen, notify senden, schalte im Betrieb und
+    # die freigegebene Automation.
     text = (Path(anbindung.__file__).parent / "ha_client.py").read_text(encoding="utf-8")
-    assert text.count('f"{self._rest_url}/services') == 3
+    assert text.count('f"{self._rest_url}/services') == 4
     assert 'f"{self._rest_url}/services"' in text and "/services/notify/" in text
     assert '/services/{domain}/{dienst}"' in text
     assert text.count("/services/{domain}") == 1
+    assert text.count("/services/automation/{dienst}") == 1
 
 
 def test_dienste_lesen_ist_nur_ein_get():
@@ -373,5 +377,69 @@ def test_schalten_fehlerstatus_wird_zur_ausnahme():
             with pytest.raises(aiohttp.ClientResponseError):
                 await client.schalte("cover", "set_cover_position", "cover.k", {"position": 100})
             await client.schliessen()
+
+    asyncio.run(ablauf())
+
+
+# ---- Konkurrierende Automation -----------------------------------------------------
+
+@pytest.mark.parametrize("an, dienst", [(False, "turn_off"), (True, "turn_on")])
+def test_freigegebene_automation_erreicht_den_server_ohne_felder(an, dienst):
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            client.automation_freigeben("automation.steuerung")
+            await client.automation_schalten("automation.steuerung", an)
+            await client.schliessen()
+            assert ha.rest_anfragen == [("POST", f"/core/api/services/automation/{dienst}",
+                                         {"entity_id": "automation.steuerung"})]
+            assert ha.rest_token == [f"Bearer {TOKEN}"]
+
+    asyncio.run(ablauf())
+
+
+def test_automation_freigabe_ist_unabhaengig_vom_betrieb():
+    """Das Wiedereinschalten beim Verlassen des Betriebs muss auch bei gesperrtem Betrieb durchgehen."""
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            client.automation_freigeben("automation.steuerung")
+            client.betrieb_freigeben(["cover.k"])
+            client.betrieb_sperren()
+            await client.automation_schalten("automation.steuerung", True)
+            assert client.automation_freigegeben == "automation.steuerung" and not client.betrieb_aktiv
+            # Umgekehrt öffnet der Betrieb keine Automation.
+            client.automation_freigeben(None)
+            client.betrieb_freigeben(["automation.steuerung"])
+            with pytest.raises(SchreibsperreFehler):
+                await client.automation_schalten("automation.steuerung", False)
+            with pytest.raises(SchreibsperreFehler):
+                await client.schalte("automation", "turn_off", "automation.steuerung")
+            await client.schliessen()
+            assert len(ha.rest_anfragen) == 1
+
+    asyncio.run(ablauf())
+
+
+@pytest.mark.parametrize("freigabe, eid", [
+    ("automation.steuerung", "automation.fremd"),       # eine andere Automation
+    ("automation.steuerung", "script.steuerung"),
+    ("automation.steuerung", "automation.steuerung/../x"),
+    ("automation.steuerung", None),
+    ("automation.steuerung", ""),
+    (None, "automation.steuerung"),                     # nichts freigegeben
+    ("switch.pumpe", "switch.pumpe"),                   # nur automation.* lässt sich freigeben
+    ("automation.a/../../x", "automation.a/../../x"),
+])
+def test_jede_andere_automation_bleibt_gesperrt(freigabe, eid):
+    async def ablauf():
+        async with FakeHa() as ha:
+            client = baue_client(ha, Mitschrift())
+            client.automation_freigeben(freigabe)
+            for an in (False, True):
+                with pytest.raises(SchreibsperreFehler):
+                    await client.automation_schalten(eid, an)
+            await client.schliessen()
+            assert ha.rest_anfragen == []
 
     asyncio.run(ablauf())
