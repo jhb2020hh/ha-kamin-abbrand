@@ -74,7 +74,9 @@ Das Menü **Einstellungen** hat sechs Reiter:
 - **Parameter:** Grenzwerte und Vorgaben. Es erscheint nur, was zu deiner Anlage passt.
 - **Anlage:** Ofen normal (luftgeführt) oder wassergeführt, Puffer, Pumpe, Klappe, Türkontakt, Wärmeerzeuger, Einheiten, Holz. Die Erzeuger lassen sich beliebig kombinieren.
 - **Ein-/Ausgänge:** Sensoren und Schalter zuweisen. Pflicht ist nur die Abgastemperatur. Änderungen gelten ohne Neustart. Bei wassergeführten Öfen weist du hier auch die Fühler und den Wärmemengenzähler zu, getrennt nach Energie und Leistung.
-- **Regler:** Kp, Tn und Kd sowie Auto-Tune. „Aus dem Verlauf berechnen“ wertet die Klappenbewegungen der letzten sieben Tage nach CHR aperiodisch aus und liefert einen Vorschlag, den du bestätigst. Der Testlauf mit gezielter Klappenbewegung ist derzeit gesperrt.
+- **Regler:** Kp, Tn und Kd sowie Auto-Tune. „Aus dem Verlauf berechnen“ prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage, mindestens 30 min Abbrand) auf Schwingungen der Abgastemperatur. Schwingt sie, senkt der Vorschlag die Verstärkung, die der Regler bei dieser Periode wirklich hat: bei abklingender Schwingung auf 70 %, bei Dauerschwingung auf ein Drittel. Tn wird mindestens 2,2 Perioden, und der D-Anteil geht auf 0. Ist der Regelkreis ruhig, gibt es keinen neuen Vorschlag, die Werte werden also nie schärfer. „Vorschlag übernehmen“ setzt Kp, Tn und Kd zusammen. Der Testlauf mit gezielter Klappenbewegung ist derzeit gesperrt.
+
+  Der D-Anteil (Kd) wirkt auf den Temperaturanstieg der letzten 2 min. Der hinkt etwa eine Minute nach. Bei Schwingungen um 3–4 min wirkt Kd deshalb wie zusätzliche Verstärkung: Kd 1 verdreifacht sie dort ungefähr. Lass ihn auf 0.
 - **Einmessen:** Aufzeichnung eines von Hand geregelten Abbrands, aus der die App Grenzwerte für deinen Ofen und Fühler vorschlägt (siehe unten).
 - **Benachrichtigungen:** Für jede Nachrichtenart wählst du die Geräte. Ohne Haken wird nichts gesendet. Je Gerät gibt es eine Testnachricht. „Übertemperatur“ meldet Abgas oder Wasser über der Grenze, im Lauschen wie im Betrieb, alle 5 min erneut und mit Entwarnung 10 K unter der Grenze.
 

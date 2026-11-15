@@ -396,6 +396,34 @@ def verlauf_lesen(ordner: Path, stunden: float, jetzt: Optional[float] = None, m
     return ergebnis
 
 
+REGLER_FELDER = ("regler_verstaerkung", "regler_nachstellzeit", "regler_vorhaltung")
+
+
+def regler_zeitraeume(ordner: Path, jetzt: float) -> list[tuple[float, float]]:
+    """Zeiträume, in denen die aktuellen Reglerwerte die Klappe geführt haben: Betrieb seit der letzten Änderung.
+
+    Im Lauschen stellt die Automation in HA die Klappe mit ihren eigenen Werten, das zählt nicht."""
+    try:
+        with open(ordner / "aenderungen.jsonl", encoding="utf-8") as datei:
+            zeilen = [json.loads(z) for z in datei if z.strip()]
+    except (OSError, ValueError):
+        return []
+    seit = max((float(z["zeit"]) for z in zeilen if z.get("was") in REGLER_FELDER), default=0.0)
+    raeume: list[tuple[float, float]] = []
+    beginn: Optional[float] = None
+    for z in sorted(zeilen, key=lambda z: float(z.get("zeit", 0))):
+        if z.get("was") != "modus":
+            continue
+        if z.get("neu") == "betrieb":
+            beginn = float(z["zeit"])
+        elif beginn is not None:
+            raeume.append((beginn, float(z["zeit"])))
+            beginn = None
+    if beginn is not None:
+        raeume.append((beginn, jetzt))
+    return [(max(von, seit), bis) for von, bis in raeume if bis > seit]
+
+
 def proben_lesen(ordner: Path, tage: float = 7.0, jetzt: Optional[float] = None) -> list[Probe]:
     """Nur die Stellung der echten Klappe zeigt, wie der Ofen antwortet, also `live`."""
     jetzt = time.time() if jetzt is None else jetzt
@@ -405,6 +433,31 @@ def proben_lesen(ordner: Path, tage: float = 7.0, jetzt: Optional[float] = None)
         if not live or ein.get("t") is None or ein.get("ausloeser") != "tick":
             continue
         proben.append(Probe(ein["jetzt"], live["klappe_soll"], ein["t"], live["phase"], bool(ein.get("tuer_offen"))))
+    return proben
+
+
+def regler_proben(ordner: Path, jetzt: float, tage: float = 7.0) -> list[Probe]:
+    """Proben, in denen die aktuellen Reglerwerte der App die Klappe geführt haben.
+
+    Ab 0.4.6 steht der Modus in jeder Zeile, für ältere Zeilen gelten die Zeiträume aus dem Änderungsprotokoll."""
+    raeume = regler_zeitraeume(ordner, jetzt)
+    try:
+        with open(ordner / "aenderungen.jsonl", encoding="utf-8") as datei:
+            seit = max((float(z["zeit"]) for z in map(json.loads, filter(str.strip, datei))
+                        if z.get("was") in REGLER_FELDER), default=0.0)
+    except (OSError, ValueError, KeyError, TypeError):
+        seit = 0.0
+    proben = []
+    for zeile in _zeilen(ordner, max(jetzt - tage * 86400.0, seit), jetzt):
+        live, ein = zeile.get("live"), zeile["eingaben"]
+        if not live or ein.get("t") is None or ein.get("ausloeser") != "tick":
+            continue
+        betrieb = (zeile.get("anzeige") or {}).get("betrieb")
+        if betrieb is None:
+            betrieb = any(von <= ein["jetzt"] <= bis for von, bis in raeume)
+        if betrieb:
+            proben.append(Probe(ein["jetzt"], live["klappe_soll"], ein["t"], live["phase"],
+                                bool(ein.get("tuer_offen"))))
     return proben
 
 

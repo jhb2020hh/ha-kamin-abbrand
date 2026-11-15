@@ -216,7 +216,7 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
 REGLER_FELDER: tuple[Feld, ...] = (
     _f("regler_verstaerkung", "Verstärkung Kp", "Wie stark die Klappe auf eine Abweichung vom Ziel reagiert.", 0.05, 5, 0.05, "%/K"),
     _f("regler_nachstellzeit", "Nachstellzeit Tn", "In welcher Zeit der Regler bleibende Abweichungen ausgleicht.", 1, 60, 0.5, "min"),
-    _f("regler_vorhaltung", "Vorhalt Kd", "Bremst schnelle Temperaturänderungen. 0 schaltet ihn ab.", 0, 20, 0.5, "%·min/K"),
+    _f("regler_vorhaltung", "Vorhalt Kd", "Wirkt auf den Anstieg über 2 min. Der hinkt etwa 1 min nach und macht den Regler bei Schwingungen um 3–4 min schärfer statt ruhiger. Empfohlen: 0 (aus).", 0, 20, 0.5, "%·min/K"),
 )
 FELDER = {f.name: f for _, felder in PARAMETER_THEMEN for f in felder} | {f.name: f for f in REGLER_FELDER}
 

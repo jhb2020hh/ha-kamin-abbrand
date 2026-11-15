@@ -408,8 +408,10 @@ class Webserver:
         return web.json_response({"ok": True} | await self.app.quittieren())
 
     async def _vorschlag_rechnen(self) -> Any:
-        proben = await asyncio.to_thread(ansicht.proben_lesen, self.ordner)
-        self.app.autotune_vorschlag = await asyncio.to_thread(autotune.aus_verlauf, proben)
+        proben = await asyncio.to_thread(ansicht.regler_proben, self.ordner, time.time())
+        p = self.app.parameter_neu
+        aktuell = (p.regler_verstaerkung, p.regler_nachstellzeit, p.regler_vorhaltung)
+        self.app.autotune_vorschlag = await asyncio.to_thread(autotune.aus_verlauf, proben, aktuell)
         return self.app.autotune_vorschlag
 
     async def _autotune_verlauf(self, _: web.Request) -> web.Response:
@@ -421,6 +423,7 @@ class Webserver:
             raise EinstellungsFehler("Es liegt kein gültiger Vorschlag vor.")
         self._setzen("regler_verstaerkung", vorschlag.kp)
         self._setzen("regler_nachstellzeit", vorschlag.tn)
+        self._setzen("regler_vorhaltung", vorschlag.kd)
         return web.json_response({"ok": True})
 
     async def _autotune_aktiv(self, _: web.Request) -> web.Response:

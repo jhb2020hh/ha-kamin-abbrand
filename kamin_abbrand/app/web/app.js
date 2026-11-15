@@ -698,10 +698,12 @@ function schieber(f) {
 }
 function vorschlagZeigen(v) {
   if (!v) return null;
-  if (!v.ok) return h("p", { klasse: "warnung" }, v.grund);
+  if (!v.ok) return h("p", { klasse: v.grund.startsWith("Regelkreis ruhig") ? "leise" : "warnung" }, v.grund);
   const w = (t, x) => h("div", {}, h("div", { klasse: "etikett" }, t), h("b", {}, x));
   return h("div", {}, h("p", {}, v.grund), h("div", { klasse: "vorschlag" },
-    w("Kp", zahl(v.kp, 2)), w("Tn", `${zahl(v.tn, 1)} min`), w("Totzeit Tu", `${zahl(v.tu_min, 2)} ± ${zahl(v.streuung_tu, 2)} min`), v.ks_tg !== null && w("Ks/Tg", `${zahl(v.ks_tg, 3)} ± ${zahl(v.streuung_ks, 3)}`)),
+    w("Kp", zahl(v.kp, 2)), w("Tn", `${zahl(v.tn, 1)} min`), w("Kd", zahl(v.kd, 2)),
+    v.periode_min !== null && w("Schwingung", `${zahl(v.periode_min, 1)} min, ±${zahl(v.amplitude_k, 0)} K`),
+    v.wirksam !== null && w("Wirksam bisher", `${zahl(v.wirksam, 2)} %/K`)),
     h("button", { klasse: "haupt", onclick: async () => { try { await api("api/autotune/uebernehmen", {}); toast("Vorschlag für die App übernommen"); reglerZeichnen(); } catch (f) { melden(f); } } }, "Vorschlag übernehmen"));
 }
 async function reglerZeichnen() {
@@ -710,7 +712,7 @@ async function reglerZeichnen() {
   const knopf = h("button", { klasse: "neben", onclick: async () => { knopf.disabled = true; knopf.textContent = "Wird berechnet …"; try { ergebnis.replaceChildren(vorschlagZeigen(await api("api/autotune/verlauf", {}))); } catch (f) { melden(f); } knopf.disabled = false; knopf.textContent = "Aus dem Verlauf berechnen"; } }, "Aus dem Verlauf berechnen");
   zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Regler"), h("p", { klasse: "leise" }, imBetrieb() ? "Diese Werte wirken im Betrieb direkt auf die Klappe." : "Im Lauschen wirken diese Werte nur auf die gerechnete Klappe. Wie der Ofen wirklich reagiert, zeigt sich erst im Betrieb.")),
     h("div", { klasse: "karte" }, d.regler.map(schieber)),
-    h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune aus dem Verlauf"), h("p", { klasse: "leise" }, "Wertet aus, wie die Temperatur in den letzten sieben Tagen auf Klappenbewegungen reagiert hat. Das Ergebnis ist ein Startwert, den du bestätigst."), h("p", { stil: "margin-top:10px" }, knopf), ergebnis),
+    h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune aus dem Verlauf"), h("p", { klasse: "leise" }, "Prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage) auf Schwingungen. Schwingt die Abgastemperatur, senkt der Vorschlag die wirksame Verstärkung und schaltet den D-Anteil ab. Ist der Regelkreis ruhig, bleibt alles, wie es ist. Den Vorschlag bestätigst du."), h("p", { stil: "margin-top:10px" }, knopf), ergebnis),
     h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune mit Testlauf"), h("p", { klasse: "leise" }, "Aktive Streckenidentifikation nach dem Relaisverfahren: Die Zuluftklappe wird im Abbrand gezielt um ihre Arbeitsstellung verstellt. Aus der Reaktion der Abgastemperatur ermittelt die App Verstärkung und Totzeit der Regelstrecke und leitet daraus Reglerparameter ab."), h("p", { stil: "margin-top:10px" }, h("button", { klasse: "neben", disabled: true }, "Testlauf starten")), h("p", { klasse: "warnung" }, d.autotune_aktiv_gesperrt)));
 }
 

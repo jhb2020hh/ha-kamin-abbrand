@@ -1340,7 +1340,8 @@ class App:
                 "klappe_ist": self.klappe_ist_prozent(rollen.get("klappe_ist")),
                 "ziel": parameter.t_ziel,
                 "leistung_kw": self._leistung_kw(),
-                "pumpe": self._pumpe_prozent()}
+                "pumpe": self._pumpe_prozent(),
+                "betrieb": self._betrieb}
 
     def _pumpe_prozent(self) -> Optional[float]:
         """Für die Verlaufsgrafik: das Stellsignal, ohne Stellsignal Ein/Aus als 100 oder 0 %."""

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.6
+
+- Geändert: Auto-Tune „Aus dem Verlauf berechnen“ arbeitet als Schwingungsbremse. Bisher legte es Tangenten an Klappensprünge. Im laufenden Regelkreis sind diese Sprünge aber die Antwort des Reglers auf die Schwingung selbst, deshalb wurden die Vorschläge mit jedem Lauf schärfer (Kp 0,36 → 0,47, Tn 7,3 → 6,0 min), und die Abgastemperatur schwang weiter, nach dem Abbrandstart mit 3 min Periode und bis ±15 K. Jetzt gilt:
+  - Ausgewertet wird nur der Abbrand im Betrieb seit der letzten Regleränderung. Im Lauschen stellt die Automation die Klappe mit ihren eigenen Werten, das zählt nicht.
+  - Schwingt die Abgastemperatur (regelmäßige Umkehrpunkte, mindestens 8 K Spitze-Spitze), sinkt die Verstärkung, die der Regler bei dieser Periode wirklich hat: auf 70 % bei abklingender Schwingung, auf ein Drittel bei Dauerschwingung. Tn wird mindestens 2,2 Perioden.
+  - Der Vorschlag setzt den D-Anteil immer auf 0, und „Vorschlag übernehmen“ setzt Kp, Tn und Kd zusammen. Der D-Anteil arbeitet auf dem 2-min-Anstieg, der etwa 1 min nachhinkt. Bei 3–4 min Periode wirkt er wie zusätzliche Verstärkung, mit Kd 1 etwa das Dreifache von Kp.
+  - Ist der Regelkreis ruhig, gibt es keinen neuen Vorschlag („Regelkreis ruhig, Werte passen“). Kp sinkt also nur, solange es schwingt.
+  - Geprüft an einem Regelkreismodell, das auf die Messung vom 15.11. abgestimmt ist: Die Einstellung von damals schwingt dort ±11 K, nach einem Auto-Tune bleibt nur die Störung durch den Abbrand (±3 K). Das gilt für 27 Ofenvarianten (Verstärkung, Zeitkonstante, Totzeit) nach höchstens zwei Vorschlägen, ohne Drift. Auf den Verläufen vom 13.–15.11. schlägt es Kp 0,45, Tn 6,6 min und Kd 0 vor.
+- Neu: Jede Verlaufszeile vermerkt, ob die App im Betrieb war.
+
 ## 0.4.5
 
 Enthält auch die Punkte der nicht veröffentlichten 0.4.4.

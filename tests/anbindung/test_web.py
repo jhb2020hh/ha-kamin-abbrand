@@ -360,10 +360,53 @@ def test_parameter_aendern_landet_im_protokoll():
 def test_autotune_verlauf_sagt_wenn_daten_fehlen_und_aktiv_ist_gesperrt():
     async def p(ober, *_):
         d = await (await ober.post("/api/autotune/verlauf", json={})).json()
-        assert d["ok"] is False and "Nicht genug Daten" in d["grund"]
+        assert d["ok"] is False and "Noch zu wenig Abbrand" in d["grund"]
         assert (await ober.post("/api/autotune/uebernehmen", json={})).status == 400
         r = await ober.post("/api/autotune/aktiv", json={})
         assert r.status == 409 and "gesperrt" in (await r.json())["fehler"]
+    mit_web(p)
+
+
+def _schwingender_verlauf(tmp, betrieb):
+    """Zwei Abbrände von gestern, die wie am 15.11. nach dem Start mit 3 min Periode nachschwingen."""
+    import datetime
+    import math
+    beginn = time.time() - 86400
+    zeilen = []
+    for abbrand in range(2):
+        for k in range(80):
+            s = k * 30
+            t = round(255 + 12 * math.exp(-s / 600) * math.sin(2 * math.pi * s / 180))
+            zeilen.append({"regelstand": "paritaet",
+                           "eingaben": {"jetzt": beginn + abbrand * 7200 + s, "t": t, "ausloeser": "tick",
+                                        "tuer_offen": False},
+                           "live": {"phase": "Abbrand", "klappe_soll": 40},
+                           "anzeige": {"betrieb": betrieb}})
+    tag = datetime.date.fromtimestamp(beginn).isoformat()
+    with open(tmp / f"verlauf-{tag}.jsonl", "a", encoding="utf-8") as datei:
+        for z in zeilen:
+            datei.write(json.dumps(z) + "\n")
+
+
+def test_autotune_schaltet_d_anteil_ab_und_uebernimmt_alle_drei_werte():
+    async def p(ober, _, app, ha, tmp):
+        app.speicher.parameter_setzen("regler_vorhaltung", 1.0)
+        app.parameter_neu_auffrischen()
+        _schwingender_verlauf(tmp, betrieb=True)
+        d = await (await ober.post("/api/autotune/verlauf", json={})).json()
+        assert d["ok"] is True and d["kd"] == 0.0 and d["periode_min"] == pytest.approx(3.0, abs=0.3), d
+        assert (await ober.post("/api/autotune/uebernehmen", json={})).status == 200
+        await warte_auf(lambda: app.parameter_neu.regler_vorhaltung == 0.0)
+        felder = [json.loads(z)["was"] for z in (tmp / "aenderungen.jsonl").read_text().splitlines()]
+        assert {"regler_verstaerkung", "regler_nachstellzeit", "regler_vorhaltung"} <= set(felder)
+    mit_web(p)
+
+
+def test_autotune_wertet_lauschen_nicht_aus():
+    async def p(ober, _, app, ha, tmp):
+        _schwingender_verlauf(tmp, betrieb=False)
+        d = await (await ober.post("/api/autotune/verlauf", json={})).json()
+        assert d["ok"] is False and "Noch zu wenig Abbrand" in d["grund"]
     mit_web(p)
 
 
