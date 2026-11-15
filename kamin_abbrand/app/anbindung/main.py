@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from anbindung.anlagenprofil import PUMPE_ROLLEN, pumpe_laeuft, rolle_passt, zaehler_entitaeten, zaehler_nach_kwh
-from anbindung.ansicht import NACHLEGEN_TEXT, QUITTIEREN_LAUSCHEN_TEXT, nachlegen_moeglich
+from anbindung.ansicht import NACHLEGEN_TEXT, NACHLEGEN_TEXT_BRIKETTS, QUITTIEREN_LAUSCHEN_TEXT, nachlegen_moeglich
 from anbindung.ansicht import amortisation_zeigen as ansicht_amortisation
 from anbindung.ausgaenge import Ausgaenge, NEUSTART, zugewiesene_ausgaenge
 from anbindung.benachrichtigung import Benachrichtiger
@@ -50,10 +50,17 @@ from kern.wirtschaft import energie_nach_kwh, leistung_nach_kw
 from kern.einmessen import FERTIG, FEUER, KALT, KEIN_FEUER, NACHLEGEN, Ereignis
 from kern.phasen import TITEL_ANHEIZFEHLER, TITEL_STOERUNG
 from kern.signale import t_gueltig
-from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, NEU, PARITAET, QUITTIEREN, SENSOR_WEG, STANDBY, STOERUNG,
-                        TICK, Parameter, Zustand)
+from kern.typen import (ABBRAND, ABKUEHLEN, AKTION_BRENNSTOFF_HOLZ, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, BRIKETTS, GLUT, HOLZ,
+                        NEU, PARITAET, QUITTIEREN, SENSOR_WEG, STANDBY, STOERUNG, TICK, Parameter, Zustand)
 
 log = logging.getLogger("kamin_abbrand")
+
+# Oranier Arena Aqua 2.0, Kap. 4.6 und 8.4: Die Regler am Ofen stellt man von Hand, die Klappe regelt nur die Zuluft.
+BRIKETT_TEXT = ("Brennstoff Briketts: Automatikregler auf 2 Uhr, Sekundärluft 30 %. "
+                "Höchstens 2,12 kg (etwa 4 Briketts) quer auf die Grundglut.")
+HOLZ_TEXT = ("Brennstoff Holz: Automatikregler zurück auf 5 Uhr, Sekundärluft 45–50 %. "
+             "Glühen noch Briketts, bleibt die Klappe bis zum Ende des Nachlaufs offen.")
+NACHLAUF_ENDE_TEXT = "Brikett-Nachlauf beendet, der Ofen ist kalt. Brennstoff steht wieder auf Holz."
 
 AUFLAGE_SPERRE_S = 600.0    # Tür öffnen so kurz nach einer Auflage ist Schüren, kein Nachlegen
 
@@ -425,7 +432,9 @@ class App:
                     # Handbetrieb der App wirkt nur hier (Regelstand neu, nur im Betrieb). Beim Einmessen
                     # hält das den I-Anteil an, die Phasen laufen weiter, gestellt wird in _stellen.
                     handbetrieb=eingaben.handbetrieb or self.hand_aktiv(jetzt) or self.einmessen_handregelung,
+                    brennstoff=self.brennstoff,
                 )
+                self._nachlauf_einspielen(steuerung.zustand)
             try:
                 ergebnis = steuerung.schritt(eingaben)
             except NotImplementedError:
@@ -443,6 +452,8 @@ class App:
                     await self._zurueckfallen(f"Fehler im Regelkern: {fehler!r}")
                 continue
             self._fehler.pop(regelstand, None)
+            if regelstand == NEU:
+                self._nachlauf_merken(steuerung.zustand)
             if regelstand == NEU and self._betrieb and self.einmessen_handregelung:
                 ergebnis = self._einmessen_ergebnis(steuerung, ergebnis)
             live = self._wirklicher_zustand(jetzt)
@@ -460,6 +471,10 @@ class App:
             if regelstand == PARITAET and ausloeser == TICK:
                 self._betrieb_zaehlen(live or ergebnis.zustand, jetzt)
             for aktion in ergebnis.aktionen:
+                if aktion == AKTION_BRENNSTOFF_HOLZ:
+                    if regelstand == NEU:
+                        self._brennstoff_zuruecksetzen(jetzt)
+                    continue
                 if regelstand == NEU and self._betrieb:
                     await self.ausgaenge.aktion(aktion)
                 else:
@@ -479,7 +494,10 @@ class App:
                     self._auflage_buchen(jetzt)
                 if (regelstand == self.fuehrender_regelstand and ergebnis.uebergang[1] == GLUT
                         and self.speicher is not None and nachlegen_moeglich(self)):
-                    self.benachrichtiger.melden("nachlegen", NACHLEGEN_TEXT)
+                    self.benachrichtiger.melden(
+                        "nachlegen", NACHLEGEN_TEXT_BRIKETTS if self.brennstoff == BRIKETTS else NACHLEGEN_TEXT)
+                if regelstand == NEU and ergebnis.uebergang[1] == ABKUEHLEN:
+                    self._nachlauf_melden(ergebnis.zustand)
             await self.schatten.ergebnis(regelstand, ergebnis, jetzt)
 
         if ausloeser == TICK and PARITAET in regelstaende:
@@ -734,6 +752,75 @@ class App:
                                                           f"Klappe {klappe:.0f} % für "
                                                           f"{self.speicher.hand_dauer_min:.0f} min."})
         return bis
+
+    # ---- Brennstoff (nur Regelstand neu) ------------------------------
+
+    @property
+    def brennstoff(self) -> str:
+        return self.speicher.brennstoff if self.speicher is not None else HOLZ
+
+    def brennstoff_setzen(self, wahl: Any) -> str:
+        """Gilt ab dem nächsten Lauf, in jeder Phase. Die Phase bleibt, nur der Parametersatz wechselt."""
+        alt = self.speicher.brennstoff
+        neu = self.speicher.brennstoff_setzen(wahl)
+        if neu != alt:
+            jetzt = self._uhr()
+            self.verlauf.aenderung(jetzt, "brennstoff", alt, neu)
+            self._auflage_umbuchen(jetzt, neu)
+            text = (BRIKETT_TEXT if neu == BRIKETTS else HOLZ_TEXT) + ("" if self.im_betrieb else
+                                                                         " Im Lauschen wirkt das nicht auf den Ofen.")
+            self.meldungen.appendleft({"zeit": jetzt, "text": text})
+            self.benachrichtiger.melden("briketts", text)
+        return neu
+
+    def _auflage_umbuchen(self, jetzt: float, neu: str) -> None:
+        """Umgestellt, während die gebuchte Auflage noch im Abbrand ist: Sie zählt für den neuen Brennstoff."""
+        stand = self.letzte.get(self.fuehrender_regelstand)
+        if (self.buchfuehrung is None or self._letzte_auflage is None or stand is None
+                or stand[0].zustand.phase != ABBRAND):
+            return
+        try:
+            self.buchfuehrung.umbuchen(jetzt, neu, self.speicher.anlagenprofil)
+        except Exception:
+            log.exception("Auflage nicht umgebucht")
+
+    def _brennstoff_zuruecksetzen(self, jetzt: float) -> None:
+        if self.speicher is None or self.speicher.brennstoff == HOLZ:
+            return
+        try:
+            self.speicher.brennstoff_setzen(HOLZ)
+        except Exception:
+            log.exception("Brennstoff nicht zurückgesetzt")
+            return
+        self.verlauf.aenderung(jetzt, "brennstoff", BRIKETTS, HOLZ)
+        if self.fuehrender_regelstand != NEU:
+            self.meldungen.appendleft({"zeit": jetzt, "text": NACHLAUF_ENDE_TEXT})
+        if self.im_betrieb:
+            self.benachrichtiger.melden("briketts", NACHLAUF_ENDE_TEXT)
+
+    def _nachlauf_einspielen(self, zustand: Zustand) -> None:
+        """Nach einem Neustart kennt der Kern den Nachlauf nicht mehr, die Einstellungen schon."""
+        gespeichert = self.speicher.brikett_nachlauf_bis if self.speicher is not None else None
+        if gespeichert is not None and (zustand.brikett_nachlauf_bis is None
+                                        or gespeichert > zustand.brikett_nachlauf_bis):
+            zustand.brikett_nachlauf_bis = gespeichert
+
+    def _nachlauf_merken(self, zustand: Zustand) -> None:
+        if self.speicher is None:
+            return
+        try:
+            self.speicher.brikett_nachlauf_setzen(zustand.brikett_nachlauf_bis)
+        except Exception:
+            log.exception("Brikett-Nachlauf nicht gespeichert")
+
+    def _nachlauf_melden(self, zustand: Zustand) -> None:
+        bis = zustand.brikett_nachlauf_bis
+        if not self.im_betrieb or bis is None or bis <= self._uhr():
+            return
+        uhrzeit = datetime.fromtimestamp(bis).strftime("%H:%M")
+        self.benachrichtiger.melden(
+            "briketts", f"Briketts glühen womöglich noch. Die Klappe bleibt bis mindestens {uhrzeit} Uhr "
+                        f"auf {self.parameter_neu.klappe_glut_brikett:.0f} % und schließt erst, wenn der Ofen kalt ist.")
 
     def _hand_aus(self, jetzt: float, text: str) -> None:
         if self.speicher is None or self.speicher.hand_bis is None:
@@ -1200,7 +1287,7 @@ class App:
         self._tuer_seit_auflage = False
         self._letzte_auflage = jetzt
         try:
-            self.buchfuehrung.auflage(jetzt, 1, self.speicher.anlagenprofil)
+            self.buchfuehrung.auflage(jetzt, 1, self.speicher.anlagenprofil, self.brennstoff)
         except Exception:
             log.exception("Auflage nicht gebucht")
 

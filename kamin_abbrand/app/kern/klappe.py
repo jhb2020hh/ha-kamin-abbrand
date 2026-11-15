@@ -12,6 +12,9 @@ from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GL
 
 
 def _anheizen(z: Zustand, w: Werte) -> float:
+    if w.brikett:
+        # Briketts zünden nur mit viel Luft über (REKORD: Luft kurz ganz öffnen; Oranier Kap. 8.3/8.4).
+        return 100
     tr = z.t_phasenstart
     if tr < w.abk:                      # Kaltstart: keine Glut vor dem Anheizen
         return w.kkalt
@@ -92,6 +95,10 @@ def soll_roh(e: Eingaben, z: Zustand, w: Werte, schliessen: float | None = None,
     if (neu and p in (STANDBY, ABKUEHLEN, ANHEIZFEHLER) and not e.handbetrieb
             and ((w.t_ok and w.t >= w.abk) or w.twt_anstieg >= w.feuer_anstieg)):
         k = max(k, w.kglut)
+    # Brikett-Nachlauf: Braunkohle glüht bis zu 9 h und bildet ohne Luft viel CO (BAFU 2020, Tab. 14/15).
+    # Die Temperatur zeigt das Ende nicht an, deshalb gilt die Untergrenze bis kalt UND Nachlauf vorbei.
+    if neu and w.nachlauf and p in (GLUT, ABKUEHLEN, ANHEIZFEHLER, STANDBY) and not e.handbetrieb:
+        k = max(k, w.kglut_brikett)
     return min(max(k, 0), 100)
 
 

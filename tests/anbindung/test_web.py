@@ -412,7 +412,7 @@ def test_benachrichtigungen_matrix_geraete_und_speichern():
         assert d["verbunden"] is True and d["zuordnung"] == {}
         assert [g["dienst"] for g in d["geraete"]] == ["notify.mobile_app_handy_a", "notify.mobile_app_handy_b", "notify.zebra"]
         assert d["geraete"][0]["name"] == "Handy A" and d["geraete"][0]["handy"] is True
-        assert [a["schluessel"] for a in d["arten"]] == ["nachlegen", "stoerung", "reinigung", "betrieb",
+        assert [a["schluessel"] for a in d["arten"]] == ["nachlegen", "briketts", "stoerung", "reinigung", "betrieb",
                                                          "wasser_hinweis", "wasser_warnung", "wasser_alarm", "uebertemperatur",
                                                          "einmessen"]
         assert all(a["titel"] for a in d["arten"])
@@ -583,6 +583,28 @@ def test_jede_bedingung_sperrt_einzeln(stoeren, schluessel):
         status = await (await ober.get("/api/status")).json()
         assert status["beobachtung"] is True and status["modus"] == "lauschen"
         assert schluessel in [x["schluessel"] for x in status["betrieb"]["offene_punkte"]]
+    mit_web(p)
+
+
+CAN = "sensor.can_alter"
+
+
+@pytest.mark.parametrize("can_wert, can_vor_s, gesperrt", [
+    ("0.3", 0, False),       # Bus lebt: stillstehender Abgaswert ist echt (Glut, 14.11. 03:46)
+    ("0.3", 3600, True),     # CAN-Alter selbst eingefroren
+    ("500", 0, True),        # CAN meldet Funkstille
+    ("unavailable", 0, True),
+])
+def test_stillstehender_abgaswert_sperrt_nicht_solange_can_lebt(can_wert, can_vor_s, gesperrt):
+    async def p(ober, _, app, ha, tmp):
+        ha.setzen(CAN, "0.1", {"unit_of_measurement": "s"})
+        await bereit_machen(ober, app, ha, can_alter=CAN)
+        await _abgas_alt(ober, app, ha)
+        await ha.aendern(CAN, can_wert, {"unit_of_measurement": "s"}, zeit=time.time() - can_vor_s)
+        await warte_auf(lambda: app.eingaenge.wert(CAN) == can_wert)
+        status = await (await ober.get("/api/status")).json()
+        offen = [x["schluessel"] for x in status["betrieb"]["offene_punkte"]]
+        assert ("abgas_frisch" in offen) is gesperrt
     mit_web(p)
 
 
@@ -885,4 +907,32 @@ def test_quittieren_nur_im_betrieb_und_anheizfehler_geht_in_standby():
         assert r.status == 200 and d["phase_vorher"] == ANHEIZFEHLER and d["phase"] == STANDBY and not d["fehler_offen"]
         assert any("quittiert" in m["text"] for m in app.meldungen)
         assert (await integ.post("/integration/befehl", json={"name": "quittieren"}, headers=k)).status == 200
+    mit_web(p)
+
+
+def test_brennstoff_umstellen_ueber_app_und_integration():
+    async def p(ober, integ, app, ha, __):
+        s = await (await ober.get("/api/status")).json()
+        assert s["brennstoff"] == "Holz" and s["brikett_nachlauf_bis"] is None
+        r = await ober.post("/api/brennstoff", json={"brennstoff": "Briketts"})
+        assert r.status == 200 and (await r.json())["brennstoff"] == "Briketts"
+        assert app.speicher.brennstoff == "Briketts"
+        assert (await (await ober.get("/api/status")).json())["brennstoff"] == "Briketts"
+        assert (await ober.post("/api/brennstoff", json={"brennstoff": "Koks"})).status == 400
+        k = {"Authorization": f"Bearer {app.speicher.token}"}
+        r = await integ.post("/integration/befehl", json={"name": "brennstoff", "wert": "Holz"}, headers=k)
+        assert r.status == 200 and app.speicher.brennstoff == "Holz"
+        assert (await (await integ.get("/integration/zustand", headers=k)).json())["brennstoff"] == "Holz"
+    mit_web(p)
+
+
+def test_brikett_felder_auf_der_einstellungsseite_ohne_live_helfer():
+    async def p(ober, _, app, __, ___):
+        d = await (await ober.get("/api/parameter")).json()
+        thema = next(t for t in d["themen"] if t["titel"] == "Briketts")
+        felder = {f["name"]: f for f in thema["felder"]}
+        assert felder["brikett_nachlauf"]["wert"] == 600 and felder["brikett_nachlauf"]["quelle"] == "Vorgabe"
+        assert (await ober.post("/api/parameter", json={"name": "glut_max_dauer_brikett", "wert": 360})).status == 200
+        app.parameter_neu_auffrischen()
+        assert app.parameter_neu.glut_max_dauer_brikett == 360
     mit_web(p)

@@ -167,6 +167,12 @@ def _ohne_feuer_zurueck(lauf: Lauf) -> None:
 def _anheiz_timeout(lauf: Lauf) -> None:
     w = lauf.w
     phase_setzen(lauf, ANHEIZFEHLER)
+    if w.brikett:
+        lauf.push(TITEL_ANHEIZFEHLER,
+                  f"Briketts zünden nicht: Abbrandtemperatur ({runde(w.tstart)} °C) nicht erreicht, "
+                  f"aktuell {runde(w.t)} °C. Grundglut prüfen, Automatikregler auf 2 Uhr? "
+                  f"Die Klappe bleibt mindestens auf {runde(w.kglut_brikett)} %.")
+        return
     lauf.push(TITEL_ANHEIZFEHLER,
               f"Abbrandtemperatur ({runde(w.tstart)} °C) nicht erreicht, "
               f"aktuell {runde(w.t)} °C. Feuer prüfen.")
@@ -175,6 +181,12 @@ def _anheiz_timeout(lauf: Lauf) -> None:
 def _zusammengefallen(lauf: Lauf) -> None:
     w = lauf.w
     phase_setzen(lauf, ANHEIZFEHLER)
+    if w.brikett:
+        lauf.push(TITEL_ANHEIZFEHLER,
+                  f"Abbrand nach {runde(w.s / 60)} min zusammengefallen ({runde(w.t)} °C) – "
+                  "die Briketts sind nicht richtig angegangen. Grundglut prüfen, "
+                  f"die Klappe bleibt mindestens auf {runde(w.kglut_brikett)} %.")
+        return
     lauf.push(TITEL_ANHEIZFEHLER,
               f"Feuer nach {runde(w.s / 60)} min zusammengefallen ({runde(w.t)} °C) – "
               "die Scheite brennen nicht richtig (zu feucht/zu dick?). "
@@ -188,6 +200,9 @@ def _nach_glut(lauf: Lauf) -> None:
         text = (f"🪵 Glutphase ({runde(w.t)} °C) – Puffer fast voll "
                 f"(unten {runde(w.puffer_u)} °C): besser NICHT nachlegen, "
                 "die Wärme kann nicht mehr abgegeben werden.")
+    elif w.brikett:
+        text = (f"🪵 Glutphase ({runde(w.t)} °C) – jetzt nachlegen, falls gewünscht: "
+                "höchstens 2,12 kg (etwa 4 Briketts) quer auf die Grundglut (Arena Aqua 2.0).")
     else:
         text = (f"🪵 Glutphase ({runde(w.t)} °C) – jetzt nachlegen, falls gewünscht: "
                 "2 Scheite quer, zusammen ca. 1,9 kg (Arena Aqua 2.0, Nennleistung).")
@@ -381,7 +396,10 @@ def _regeln_neu() -> tuple[Regel, ...]:
             lambda r: Regel(r.alias, lambda l: r.bedingung(l) and _nachlegen_belegt(l), r.aktion),
     }
     regeln = [ersetzt[r.alias](r) if r.alias in ersetzt else r for r in REGELN_PARITAET]
-    regeln = [Regel(r.alias, lambda l, r=r: r.bedingung(l) and l.signal != SIGNAL_STUMM, r.aktion)
+    # Briketts brauchen länger zum Überzünden. Der stille Rücksprung würde sie mit der Glut-Klappe
+    # ersticken; bei ihnen meldet stattdessen der Anheiz-Timeout einen Anheizfehler.
+    regeln = [Regel(r.alias, lambda l, r=r: r.bedingung(l) and l.signal != SIGNAL_STUMM and not l.w.brikett,
+                    r.aktion)
               if r.bedingung is _kein_feuer else r for r in regeln]
     # Die Tür muss auch ohne Messwert wirken: Klappe auf, wenn jemand die Tür öffnet.
     tuer = next(r for r in regeln if r.alias == "Tür auf → Klappe auf")

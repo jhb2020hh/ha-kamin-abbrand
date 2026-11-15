@@ -90,6 +90,12 @@ Sie endet sofort bei „Abbrechen“, ohne Feuer nach 60 min (auch wenn das Feue
 
 Die Leistung wählst du mit Eco, Normal und Power auf der Startseite. Sie setzt das Ziel der App, die Zieltemperaturen je Stufe stehen unter Parameter. Eine Live-Automation in Home Assistant bleibt davon unberührt. Im Lauschen wirkt die Wahl nur auf die Berechnung.
 
+### Brennstoff Briketts
+
+Den Brennstoff wählst du auf der Startseite (Holz oder Briketts) oder in Home Assistant mit `select.kamin_app_brennstoff`. Er gilt je Auflage und lässt sich in jeder Phase umstellen, ohne dass eine Phase neu beginnt. Am besten stellst du um, bevor du die Tür öffnest. Bei Briketts und Holz zusammen wählst du Briketts.
+
+Mit Briketts zündet die App mit ganz offener Klappe, wartet länger auf den Abbrand, regelt mit mindestens 50 % und hält die Glut mit 25 %. Braunkohle glüht bis zu neun Stunden nach und bildet ohne Luft viel Kohlenmonoxid, auch wenn das Abgas schon kalt wirkt. Deshalb bleibt die Klappe nach dem letzten Brikett-Feuer mindestens auf der Glut-Stellung, bis der Ofen kalt ist und der Nachlauf (Vorgabe 10 h) vorbei ist. Das gilt auch nach dem Zurückstellen auf Holz. Danach stellt die App selbst auf Holz zurück. Die Regler am Ofen stellst du von Hand: bei Briketts Automatikregler auf 2 Uhr und Sekundärluft 30 %, bei Holz zurück auf 5 Uhr und 45–50 %. Ein CO-Melder im Aufstellraum gehört dazu. Im Lauschen wirkt die Wahl nur auf die Berechnung.
+
 Unter Einstellungen → Apps stehen nur `log_stufe` und `helfer_praefix`. Fehlen die Helfer einer Live-Automation, startet die App nach einer Minute im Standby mit ihren Vorgaben.
 
 ## Kosten

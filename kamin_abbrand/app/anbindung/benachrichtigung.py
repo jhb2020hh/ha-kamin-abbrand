@@ -33,6 +33,7 @@ class Art:
 
 ARTEN: tuple[Art, ...] = (
     Art("nachlegen", "Nachlegen", "Die Glut ist da und der Puffer nimmt noch Wärme auf."),
+    Art("briketts", "Briketts", "Regler am Ofen beim Umstellen des Brennstoffs, Nachlauf der Brikett-Glut und sein Ende."),
     Art("stoerung", "Störung", "Fühler stumm oder eingefroren, Feuer nicht angegangen.", True, "🔥 Kamin – Störung"),
     Art("reinigung", "Wärmetauscher reinigen", "Die eingestellten Brennstunden sind erreicht.", False, "🔥 Kamin – Reinigung"),
     Art("betrieb", "Betrieb", "Moduswechsel, Klappe folgt nicht.", True, "🔥 Kamin – Betrieb"),

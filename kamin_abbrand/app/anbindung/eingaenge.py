@@ -79,7 +79,7 @@ class Eingaenge:
         self.parameter = Parameter()
 
         self._parameter_ids = {
-            f"input_number.{praefix}_{feld}": feld for feld in Parameter.feldnamen()
+            f"input_number.{praefix}_{feld}": feld for feld in Parameter.helfer_feldnamen()
         }
         self._phase_id = f"input_select.{praefix}_phase"
         self._phase_seit_id = f"input_datetime.{praefix}_phase_seit"

@@ -14,7 +14,7 @@ from anbindung.einstellungen import AUSGANG, HAND_DAUERN_MIN, ROLLEN
 from kern import abbrand_dauer, wartung, wirtschaft
 from kern.wirtschaft import leistung_nach_kw
 from kern.autotune import Probe
-from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, NEU, PARITAET,
+from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, BRIKETTS, GLUT, NEU, PARITAET,
                         SIGNAL_FRISCH, SIGNAL_STUMM, STANDBY, STOERUNG, TUER_OFFEN, WARTUNG)
 
 BEOBACHTUNG_TEXT = "Lauschen: Die App steuert die Klappe nicht. Das geht erst im Betrieb."
@@ -50,6 +50,7 @@ ZUSTAENDE: dict[str, tuple[str, bool, str, str]] = {
 }
 PHASENBAND = (STANDBY, ANHEIZEN, ABBRAND, AUSBRAND, GLUT, ABKUEHLEN)
 NACHLEGEN_TEXT = "Glutphase: Jetzt kannst du nachlegen."
+NACHLEGEN_TEXT_BRIKETTS = "Glutphase: Jetzt kannst du nachlegen, höchstens 2,12 kg (etwa 4 Briketts) quer auf die Glut."
 _FEUER_PHASEN = (ANHEIZEN, ABBRAND, AUSBRAND, GLUT)
 
 
@@ -67,6 +68,13 @@ def _zustand_zum_zeigen(app: Any, jetzt: float) -> tuple[Optional[Any], str]:
 
 def _rolle(app: Any, name: str) -> Optional[str]:
     return app.speicher.rollen.get(name)
+
+
+def _nachlauf_bis(app: Any, z: Optional[Any], jetzt: float) -> Optional[float]:
+    """Bis wann die Klappe wegen Briketts mindestens offen bleibt, solange das noch aussteht."""
+    neu = app.letzte.get(NEU)
+    bis = neu[0].zustand.brikett_nachlauf_bis if neu else app.speicher.brikett_nachlauf_bis
+    return bis if bis is not None and bis > jetzt else None
 
 
 def nachlegen_moeglich(app: Any) -> bool:
@@ -189,6 +197,8 @@ def wirtschaft_zeigen(app: Any, menge_kwh: Optional[float] = None) -> dict:
 def _tag_zeigen(z: dict) -> dict:
     t = wirtschaft.mittel_t_aussen(z)
     return {"tag": z["tag"], "auflagen": z["auflagen"], "holz_kg": z["holz_kg"], "holz_eur": z["holz_eur"],
+            "brikett_auflagen": z.get("brikett_auflagen", 0), "brikett_kg": z.get("brikett_kg", 0.0),
+            "brikett_eur": z.get("brikett_eur", 0.0),
             "kaminwaerme_kwh": z.get("kaminwaerme_kwh", 0.0), "waerme_art": z.get("waerme_art"),
             "verbrauch_kwh": z["verbrauch_kwh"], "t_aussen": t, "einsparung_kwh": z.get("einsparung_kwh", 0.0),
             "einsparung_eur": z.get("einsparung_eur"), "art": z.get("art"), "vorlaeufig": not z["final"],
@@ -224,8 +234,9 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
     stil, blinkt, satz, info = ZUSTAENDE.get(phase, ("standby", False, "Warte auf Daten aus Home Assistant.", ""))
     puffer = ein.zahl(_rolle(app, "puffer_unten"))
     nachlegen = phase == GLUT and nachlegen_moeglich(app)
+    brennstoff = app.speicher.brennstoff
     if nachlegen:
-        stil, satz = "nachlegen", NACHLEGEN_TEXT
+        stil, satz = "nachlegen", NACHLEGEN_TEXT_BRIKETTS if brennstoff == BRIKETTS else NACHLEGEN_TEXT
     neu = app.letzte.get(NEU)
     paritaet = app.letzte.get(PARITAET)
     signal = neu[0].signal if neu else None
@@ -295,6 +306,8 @@ def status(app: Any, jetzt: Optional[float] = None) -> dict:
         "leistung": leistung_app or leistung_live,
         "leistung_live": leistung_live,
         "leistung_eigen": leistung_app is not None,
+        "brennstoff": brennstoff,
+        "brikett_nachlauf_bis": _nachlauf_bis(app, z, jetzt),
         "einrichtung": einrichtung,
         "betrieb_h": round(app.speicher.daten["betrieb_s"] / 3600.0, 1),
         "app": {

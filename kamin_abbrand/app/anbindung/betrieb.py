@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import atomar_schreiben
-from kern.signale import T_DECKEL
+from kern.signale import CAN_STUMM_S, T_DECKEL
 from kern.typen import NEU, PHASEN, Zustand
 
 log = logging.getLogger(__name__)
@@ -80,11 +81,29 @@ def offene_punkte(app: Any, jetzt: float, start: bool = False) -> list[Punkt]:
 
 
 def abgas_frisch(app: Any, eid: str, jetzt: float) -> bool:
+    """Plausibler Wert, und der Fühler lebt.
+
+    HA schickt über state_changed nur Wertänderungen. Steht die Abgastemperatur still (Glut, 71 °C über 10 min),
+    sieht die App keine Meldung, obwohl der Fühler sendet. Ist ein CAN-Alter zugewiesen, entscheidet es deshalb
+    wie im Kern (kern.signale.signal_bewerten): Datenpakete kommen an, also ist der stehende Wert echt."""
     eintrag = app.eingaenge.eintrag(eid)
     t = app.eingaenge.temperatur_c(eid)
     if eintrag is None or t is None or not _T_UNTEN <= t <= T_DECKEL:
         return False
-    return jetzt - eintrag.gemeldet <= app.parameter_neu.fuehler_timeout
+    if jetzt - eintrag.gemeldet <= app.parameter_neu.fuehler_timeout:
+        return True
+    return _can_lebt(app, jetzt)
+
+
+def _can_lebt(app: Any, jetzt: float) -> bool:
+    """CAN-Alter klein und selbst frisch gemeldet. Es ändert sich bei laufendem Bus alle paar Sekunden,
+    ein eingefrorener Wert zählt also nicht."""
+    can = app.eingaenge.ent.can_alter
+    eintrag = app.eingaenge.eintrag(can) if can else None
+    alter = als_zahl(eintrag.zustand) if eintrag else None
+    if alter is None or alter > CAN_STUMM_S:
+        return False
+    return jetzt - eintrag.gemeldet <= CAN_STUMM_S
 
 
 def neu_liefert(app: Any, jetzt: float) -> bool:

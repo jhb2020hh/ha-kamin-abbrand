@@ -116,10 +116,10 @@ def test_tuerkontakt_aus():
 def test_parameter_aus_allen_helfern():
     zustaende = [
         zustand(f"input_number.kamin_abbrand_{feld}", str(i + 1.5))
-        for i, feld in enumerate(Parameter.feldnamen())
+        for i, feld in enumerate(Parameter.helfer_feldnamen())
     ]
     parameter = baue(*zustaende).parameter
-    for i, feld in enumerate(Parameter.feldnamen()):
+    for i, feld in enumerate(Parameter.helfer_feldnamen()):
         assert getattr(parameter, feld) == i + 1.5
 
 

@@ -181,6 +181,9 @@ function pumpeKarte(s) {
   if (s.pumpe_stellsignal === null) return wertKarte("Pumpe", lauf, "");
   return wertKarte("Pumpe", zahl(s.pumpe_stellsignal, 1), "%", lauf, s.pumpe_stellsignal);
 }
+async function brennstoffWaehlen(brennstoff) {
+  try { await api("api/brennstoff", { brennstoff }); toast(`Brennstoff ${brennstoff}`); aktualisieren(); } catch (f) { melden(f); }
+}
 async function leistungWaehlen(modus) {
   try { const d = await api("api/leistung", { modus }); toast(`Leistung ${modus}: Ziel ${zahl(d.ziel)} °C`); aktualisieren(); } catch (f) { melden(f); }
 }
@@ -239,6 +242,9 @@ function startZeichnen(s) {
     h("div", {}, h("div", { klasse: "etikett" }, "Leistung"),
       h("div", { klasse: "modus", role: "group", "aria-label": "Leistung" }, ["Eco", "Normal", "Power"].map((m) => h("button", { type: "button", "aria-pressed": String(m === s.leistung), onclick: () => leistungWaehlen(m) }, m))),
       h("div", { klasse: "leise", stil: "margin-top:4px" }, `Ziel ${zahl(s.ziel)} °C`, s.leistung_eigen && s.leistung_live && s.leistung_live !== s.leistung ? ` · Automation läuft auf ${s.leistung_live}` : "", s.modus !== "betrieb" ? " · wirkt im Lauschen nicht auf den Ofen" : "")),
+    h("div", {}, h("div", { klasse: "etikett" }, "Brennstoff"),
+      h("div", { klasse: "modus", role: "group", "aria-label": "Brennstoff" }, ["Holz", "Briketts"].map((b) => h("button", { type: "button", "aria-pressed": String(b === s.brennstoff), onclick: () => brennstoffWaehlen(b) }, b))),
+      h("div", { klasse: "leise", stil: "margin-top:4px" }, s.brikett_nachlauf_bis ? `Briketts glühen nach: Klappe offen bis mind. ${uhrzeit(s.brikett_nachlauf_bis)}` : "jederzeit umstellbar")),
     h("div", {}, h("div", { klasse: "etikett" }, s.modus === "betrieb" ? "Die App steuert" : "Die App würde jetzt"), app ? h("div", {}, `${app.phase}, Klappe ${app.klappe} %`) : h("div", { klasse: "leise" }, "noch keine Berechnung")),
     s.tuerkontakt_vorhanden && s.tuer_offen !== null && h("div", {}, h("div", { klasse: "etikett" }, "Tür"), h("div", {}, s.tuer_offen ? "offen" : "geschlossen")),
     s.lueftung_frei !== null && h("div", {}, h("div", { klasse: "etikett" }, "Lüftung"), h("div", {}, s.lueftung_frei ? "frei" : "gesperrt"))));
@@ -441,7 +447,7 @@ function amortisationKarte(d) {
     h("div", { klasse: "vorschlag", stil: "margin-top:10px" },
       wert("Netto bisher", euro(a.netto_eur, w, 0)), a.rest_eur !== null && wert("Noch offen", euro(a.rest_eur, w, 0)),
       a.prognose_jahre !== null && wert("Prognose", `${zahl(a.prognose_jahre, 1)} Jahre`), a.jahresertrag_eur != null && wert("Ertrag je Jahr", euro(a.jahresertrag_eur, w, 0)), wert("Kaminwärme", `${zahl(a.kaminwaerme_kwh, 0)} kWh`)),
-    h("p", { klasse: "leise", stil: "margin-top:8px" }, `Netto = Einsparung ${euro(a.einsparung_eur, w, 0)} − Holz ${euro(a.holz_eur, w, 0)} − laufende Kosten ${euro(a.laufend_eur, w, 0)}. ` +
+    h("p", { klasse: "leise", stil: "margin-top:8px" }, `Netto = Einsparung ${euro(a.einsparung_eur, w, 0)} − Brennstoff ${euro(a.holz_eur, w, 0)} − laufende Kosten ${euro(a.laufend_eur, w, 0)}. ` +
       (tage ? `Kamintage: ${a.tage_gemessen} gemessen, ${a.tage_modell} geschätzt.` : "") +
       (a.tage_unvollstaendig ? ` Bei ${a.tage_unvollstaendig} Tagen fehlt ein Preis, sie zählen ohne Einsparung.` : "")),
     a.art === "schaetzung" && h("p", { klasse: "leise" }, "Geschätzt heißt: aus dem Holz und deinen Nutzungsgraden gerechnet. Mit Energiezähler, Außentemperatur und Referenz wird gemessen."),
@@ -461,13 +467,13 @@ function tageKarte(d) {
   if (d.tage.length === 0) return h("div", { klasse: "karte" }, h("h2", {}, "Tageswerte"), h("p", { klasse: "leise" }, "Noch keine Tage gebucht. Die Buchführung beginnt mit dem nächsten Takt der App."));
   const w = d.waehrung;
   const zeile = (t) => h("tr", {}, h("th", { scope: "row" }, new Date(t.tag).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }), t.vorlaeufig && h("span", { klasse: "chip" }, "heute")),
-    h("td", {}, zahl(t.auflagen)), h("td", {}, zahl(t.kaminwaerme_kwh, 0)), h("td", {}, zahl(t.holz_eur, 2)),
+    h("td", {}, zahl(t.auflagen), t.brikett_auflagen ? ` (${zahl(t.brikett_auflagen)} B)` : ""), h("td", {}, zahl(t.kaminwaerme_kwh, 0)), h("td", {}, zahl(t.holz_eur + (t.brikett_eur || 0), 2)),
     h("td", {}, t.einsparung_eur === null ? "–" : zahl(t.einsparung_eur, 2)), h("td", {}, t.art ? (t.art === "gemessen" ? "gemessen" : "geschätzt") : "–"));
   return h("div", { klasse: "karte" }, h("h2", {}, "Tageswerte"),
     h("div", { klasse: "matrix" }, h("table", { klasse: "kosten tage" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Tag"), h("th", {}, "Aufl."), h("th", {}, "kWh"), h("th", {}, `Holz ${w}`), h("th", {}, `Spart ${w}`), h("th", {}, "Art"))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Tag"), h("th", {}, "Aufl."), h("th", {}, "kWh"), h("th", {}, `Brennst. ${w}`), h("th", {}, `Spart ${w}`), h("th", {}, "Art"))),
       h("tbody", {}, d.tage.map(zeile)))),
-    h("p", { klasse: "leise", stil: "margin-top:8px" }, "kWh ist die Kaminwärme. Gemessen wird ein Tag erst nach Mitternacht, heute gilt die Schätzung. Das Geld wird zum Preis des Tages gebucht."));
+    h("p", { klasse: "leise", stil: "margin-top:8px" }, "Aufl. zählt alle Auflagen, „B“ davon die mit Briketts. kWh ist die Kaminwärme. Gemessen wird ein Tag erst nach Mitternacht, heute gilt die Schätzung. Das Geld wird zum Preis des Tages gebucht."));
 }
 function einstellungenKarte(d) {
   const e = d.einstellungen, w = d.waehrung, werte = Object.fromEntries(Object.entries(e).map(([n, x]) => [n, x.wert]));
@@ -475,7 +481,8 @@ function einstellungenKarte(d) {
   const saldo = { ...d.saldo };
   const r = d.referenz;
   return [h("details", { klasse: "karte" }, h("summary", {}, "Amortisation einstellen"),
-      h("div", { klasse: "angaben", stil: "margin-top:10px" }, feld("investition", w), feld("laufende_kosten_jahr", `${w}/Jahr`, "z. B. Schornsteinfeger, Wartung"), feld("jahreswaerme_kwh", "kWh", "für die Prognose")),
+      h("div", { klasse: "angaben", stil: "margin-top:10px" }, feld("investition", w), feld("laufende_kosten_jahr", `${w}/Jahr`, "z. B. Schornsteinfeger, Wartung"), feld("jahreswaerme_kwh", "kWh", "für die Prognose"),
+        feld("brikett_kg_je_auflage", "kg", "Arena Aqua 2.0: höchstens 2,12 kg"), feld("brikett_eur_je_kg", `${w}/kg`, "Briketts")),
       h("h3", { stil: "margin-top:14px" }, "Referenz der bisherigen Heizung"),
       h("p", { klasse: "leise" }, "Verbrauch an einem Tag ohne Feuer: größter Wert aus a − b × Außentemperatur und Sockel, in kWh Endenergie je Tag. Ohne Referenz wird die Einsparung geschätzt."),
       h("div", { klasse: "angaben" }, feld("referenz_a", "kWh"), feld("referenz_b", "kWh/K"), feld("referenz_sockel", "kWh")),

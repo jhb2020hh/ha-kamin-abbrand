@@ -81,6 +81,7 @@ class Webserver:
         r.add_get("/api/parameter", self._parameter)
         r.add_post("/api/parameter", self._parameter_setzen)
         r.add_post("/api/leistung", self._leistung)
+        r.add_post("/api/brennstoff", self._brennstoff)
         r.add_post("/api/hand", self._hand)
         r.add_post("/api/quittieren", self._quittieren)
         r.add_post("/api/autotune/verlauf", self._autotune_verlauf)
@@ -379,6 +380,10 @@ class Webserver:
         self.app.verlauf.aenderung(jetzt, "t_ziel", alt_ziel, ziel)
         return ziel
 
+    async def _brennstoff(self, anfrage: web.Request) -> web.Response:
+        inhalt = await anfrage.json()
+        return web.json_response({"brennstoff": self.app.brennstoff_setzen(inhalt.get("brennstoff"))})
+
     async def _leistung(self, anfrage: web.Request) -> web.Response:
         inhalt = await anfrage.json()
         return web.json_response({"ziel": self._leistung_setzen(inhalt.get("modus"))})
@@ -638,6 +643,8 @@ class Webserver:
             return web.json_response({"fehler": AUTOTUNE_GESPERRT}, status=409)
         if name == "leistung":
             return web.json_response({"ok": True, "ziel": self._leistung_setzen(wert)})
+        if name == "brennstoff":
+            return web.json_response({"ok": True, "brennstoff": self.app.brennstoff_setzen(wert)})
         if name in _BEOBACHTUNG_GESPERRT:
             return await self._befehl_im_modus(name, wert)
         return web.json_response({"fehler": "Unbekannter Befehl."}, status=400)

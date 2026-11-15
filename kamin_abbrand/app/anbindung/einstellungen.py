@@ -20,7 +20,7 @@ from anbindung.anlagenprofil import (ENTITAET_MUSTER, Anlagenprofil, ProfilFehle
 from anbindung.eingaenge import Entitaeten, als_zahl
 from anbindung.benachrichtigung import ZuordnungFehler, zuordnung_pruefen
 from kern import wartung, wasser
-from kern.typen import Parameter
+from kern.typen import BRENNSTOFFE, HOLZ, Parameter
 
 log = logging.getLogger(__name__)
 
@@ -174,10 +174,19 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
         _f("ausbrand_abfall", "Abfall für Ausbrand", "So weit muss die Temperatur vom Höchstwert fallen.", 5, 150, 5, "K"),
         _f("t_glut", "Glut beginnt unter", "Unter dieser Temperatur ist nur noch Glut da.", 60, 300, 5, "°C"),
         _f("t_abkuehlen", "Abkühlen beginnt unter", "Unter dieser Temperatur ist die Glut aus.", 40, 200, 5, "°C"),
-        _f("klappe_glut", "Klappe in der Glut", "Wenig Luft hält die Glut lange.", 0, 50, 1, "%"),
+        _f("klappe_glut", "Klappe in der Glut", "Wenig Luft hält die Glut lange.", 0, 100, 1, "%"),
         _f("glut_max_dauer", "Höchstdauer Glut", "Danach geht der Ofen in Abkühlen über.", 10, 480, 10, "min"),
         _f("abkuehlen_max_dauer", "Höchstdauer Abkühlen", "Danach geht der Ofen in Standby.", 10, 480, 10, "min"),
         _f("puffer_voll", "Puffer gilt als voll ab", "Dann rät die App vom Nachlegen ab.", 30, 95, 1, "°C"),
+    )),
+    ("Briketts", (
+        _f("startfenster_brikett", "Zeit für den Mindestanstieg", "Wie bei Holz, nur für Briketts. Bis dahin gilt ein Anheizen nicht als Fehlstart.", 5, 60, 1, "min"),
+        _f("anheizen_timeout_brikett", "Höchstdauer Anheizen", "Danach meldet die App einen Anheizfehler. Briketts zünden langsamer als Holz.", 10, 180, 5, "min"),
+        _f("klappe_min_abbrand_brikett", "Klappe mindestens im Abbrand", "Braunkohle braucht viel Luft, sonst steigt das CO stark an.", 5, 100, 5, "%"),
+        _f("klappe_glut_brikett", "Klappe in der Glut", "Auch Untergrenze, solange Briketts nachglühen. Nie 0 %, die Kohle bildet sonst viel CO.", 5, 100, 1, "%"),
+        _f("glut_max_dauer_brikett", "Höchstdauer Glut", "Braunkohle glüht etwa viermal so lange wie Holz.", 60, 720, 10, "min"),
+        _f("abkuehlen_max_dauer_brikett", "Höchstdauer Abkühlen", "Danach geht der Ofen in Standby, die Klappe bleibt trotzdem bis zum Ende des Nachlaufs offen.", 60, 900, 10, "min"),
+        _f("brikett_nachlauf", "Nachlauf nach dem letzten Brikett-Feuer", "So lange bleibt die Klappe mindestens auf der Glut-Stellung, auch nach dem Wechsel auf Holz, und bis der Ofen kalt ist.", 60, 1440, 30, "min"),
     )),
     ("Sicherheit", (
         _f("t_uebertemperatur", "Übertemperatur ab", "Darüber drosselt die App die Klappe sofort.", 200, 900, 10, "°C"),
@@ -274,6 +283,10 @@ class Speicher:
             daten["wasser_grenzen"] = {}
         if not isinstance(daten.get("leistung"), dict):
             daten["leistung"] = {}
+        brennstoff = daten.get("brennstoff") if isinstance(daten.get("brennstoff"), dict) else {}
+        daten["brennstoff"] = {
+            "wahl": brennstoff.get("wahl") if brennstoff.get("wahl") in BRENNSTOFFE else HOLZ,
+            "nachlauf_bis": als_zahl(brennstoff.get("nachlauf_bis"))}
         hand = daten.get("hand") if isinstance(daten.get("hand"), dict) else {}
         dauer = als_zahl(hand.get("dauer_min"))
         daten["hand"] = {"bis": als_zahl(hand.get("bis")),
@@ -384,6 +397,29 @@ class Speicher:
         self.parameter_neu["t_ziel"] = ziel
         self.speichern()
         return ziel
+
+    # ---- Brennstoff (nur Regelstand neu) ------------------------------
+
+    @property
+    def brennstoff(self) -> str:
+        return self.daten["brennstoff"]["wahl"]
+
+    def brennstoff_setzen(self, wahl: Any) -> str:
+        if wahl not in BRENNSTOFFE:
+            raise EinstellungsFehler("Diesen Brennstoff gibt es nicht.")
+        self.daten["brennstoff"]["wahl"] = wahl
+        self.speichern()
+        return wahl
+
+    @property
+    def brikett_nachlauf_bis(self) -> Optional[float]:
+        """Bis dahin hält die App die Klappe im Brikett-Nachlauf offen. Übersteht Neustarts."""
+        return self.daten["brennstoff"]["nachlauf_bis"]
+
+    def brikett_nachlauf_setzen(self, bis: Optional[float]) -> None:
+        if bis != self.daten["brennstoff"]["nachlauf_bis"]:
+            self.daten["brennstoff"]["nachlauf_bis"] = bis
+            self.speichern()
 
     def _leistung_nachfuehren(self, name: str) -> None:
         """Das Ziel folgt der aktiven Stufe. Nimmt jemand das eigene Ziel zurück, ist auch keine Stufe mehr gewählt."""

@@ -43,7 +43,7 @@ def lauf(ablauf):
 
 
 def test_arten_sind_vollstaendig():
-    assert [a.schluessel for a in ARTEN] == ["nachlegen", "stoerung", "reinigung", "betrieb",
+    assert [a.schluessel for a in ARTEN] == ["nachlegen", "briketts", "stoerung", "reinigung", "betrieb",
                                              "wasser_hinweis", "wasser_warnung", "wasser_alarm", "uebertemperatur",
                                              "einmessen"]
     assert all(a.titel for a in ARTEN)

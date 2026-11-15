@@ -329,3 +329,45 @@ def test_referenz_lernen_aus_eigenen_tagen_ohne_feuer_und_uebernehmen(buch):
 def test_referenz_uebernehmen_ohne_vorschlag_ist_ein_fehler(buch):
     with pytest.raises(EinstellungsFehler):
         buch.referenz_uebernehmen(PROFIL)
+
+
+# ---- Briketts (Issue #3) ---------------------------------------------------------------------
+
+
+def test_brikett_auflage_zaehlt_getrennt_mit_eigener_menge_und_preis(buch):
+    buch.einstellungen_setzen(EINSTELLUNGEN | {"brikett_eur_je_kg": 0.5})
+    buch.auflage(zeit(9), 1, PROFIL)
+    buch.auflage(zeit(9), 1, PROFIL, "Briketts")
+    z = zeile(buch, 9)
+    assert z["auflagen"] == 2 and z["brikett_auflagen"] == 1
+    assert z["holz_kg"] == 5 and z["brikett_kg"] == pytest.approx(2.12)
+    assert z["brikett_eur"] == pytest.approx(1.06) and z["holz_eur"] == pytest.approx(1.0)
+    holz = 16.0
+    assert z["waerme_holz_kwh"] == pytest.approx(holz + 2.12 * 5.3 * 0.8)
+
+
+def test_umbuchen_der_letzten_auflage_auf_briketts_und_zurueck(buch):
+    buch.auflage(zeit(9), 1, PROFIL)
+    assert buch.umbuchen(zeit(9), "Briketts", PROFIL)
+    z = zeile(buch, 9)
+    assert z["auflagen"] == 1 and z["brikett_auflagen"] == 1 and z["holz_kg"] == 0
+    assert z["brikett_kg"] == pytest.approx(2.12)
+    assert not buch.umbuchen(zeit(9), "Briketts", PROFIL)     # schon Briketts
+    assert buch.umbuchen(zeit(9), "Holz", PROFIL)
+    z = zeile(buch, 9)
+    assert z["brikett_auflagen"] == 0 and z["holz_kg"] == 5 and z["brikett_kg"] == 0
+
+
+def test_alte_zeile_ohne_brikettfelder_bleibt_lesbar(tmp_path):
+    pfad = tmp_path / "wirtschaft.json"
+    b = Buchfuehrung(pfad, Uhr(zeit(9)))
+    b.einstellungen_setzen(EINSTELLUNGEN)
+    b.auflage(zeit(9), 1, PROFIL)
+    daten = json.loads(pfad.read_text())
+    for zeile_ in daten["tage"].values():
+        for name in ("brikett_auflagen", "brikett_kg", "brikett_eur"):
+            zeile_.pop(name, None)
+    pfad.write_text(json.dumps(daten))
+    b = Buchfuehrung(pfad, Uhr(zeit(9)))
+    b.auflage(zeit(9), 1, PROFIL, "Briketts")
+    assert zeile(b, 9)["brikett_auflagen"] == 1

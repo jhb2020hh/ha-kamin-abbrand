@@ -13,6 +13,8 @@ from anbindung.anlagenprofil import (HOLZ_ART, Anlagenprofil, Erzeuger, Holz, an
                                      preis_je_kwh, wirksamer_nutzungsgrad)
 
 HOLZ = "holz"
+BRIKETT_KG_JE_AUFLAGE = 2.12    # kg
+BRIKETT_HEIZWERT = 5.3          # kWh/kg (19 MJ/kg)
 VORGABE_MENGE_KWH = 1000.0
 
 
@@ -222,6 +224,10 @@ class Konfiguration:
     referenz_b: Optional[float] = None
     referenz_sockel: Optional[float] = None
     laufende_kosten_jahr: float = 0.0
+    # Braunkohlebriketts: Aufgabemenge Oranier Arena Aqua 2.0 (Kap. 3.1), Heizwert REKORD/DEBRIV > 19 MJ/kg
+    brikett_kg_je_auflage: float = BRIKETT_KG_JE_AUFLAGE
+    brikett_heizwert: float = BRIKETT_HEIZWERT
+    brikett_eur_je_kg: Optional[float] = None
 
 
 def konfiguration_aus(profil: Anlagenprofil, einstellungen: dict) -> Konfiguration:
@@ -247,7 +253,9 @@ def konfiguration_aus(profil: Anlagenprofil, einstellungen: dict) -> Konfigurati
         anteile=tuple(liste),
         referenz_a=einstellungen.get("referenz_a"), referenz_b=einstellungen.get("referenz_b"),
         referenz_sockel=einstellungen.get("referenz_sockel"),
-        laufende_kosten_jahr=einstellungen.get("laufende_kosten_jahr") or 0.0)
+        laufende_kosten_jahr=einstellungen.get("laufende_kosten_jahr") or 0.0,
+        brikett_kg_je_auflage=einstellungen.get("brikett_kg_je_auflage") or BRIKETT_KG_JE_AUFLAGE,
+        brikett_eur_je_kg=einstellungen.get("brikett_eur_je_kg"))
 
 
 def zaehler_vollstaendig(zeile: dict) -> bool:
@@ -311,7 +319,8 @@ def amortisation(zeilen: list[dict], saldo: dict, investition: Optional[float], 
     die laufenden Kosten für ein ganzes Jahr ab. Sie fallen nach Zeit an, nicht nach Wärme.
     """
     einsparung = (saldo.get("einsparung_eur") or 0.0) + sum(z.get("einsparung_eur") or 0.0 for z in zeilen)
-    holz = (saldo.get("holz_eur") or 0.0) + sum(z.get("holz_eur") or 0.0 for z in zeilen)
+    holz = ((saldo.get("holz_eur") or 0.0)
+            + sum((z.get("holz_eur") or 0.0) + (z.get("brikett_eur") or 0.0) for z in zeilen))
     laufend = sum(z.get("laufend_eur") or 0.0 for z in zeilen)
     waerme = (saldo.get("kaminwaerme_kwh") or 0.0) + sum(z.get("kaminwaerme_kwh") or 0.0 for z in zeilen)
     netto = einsparung - holz - laufend

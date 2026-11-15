@@ -5,8 +5,10 @@ from dataclasses import dataclass, replace
 
 from kern import klappe, phasen, regler
 from kern.phasen import Lauf, Regel
-from kern.signale import signal_bewerten, sp_phase, t_gueltig, werte_ermitteln
-from kern.typen import NEU, PARITAET, SIGNAL_FRISCH, Eingaben, Ergebnis, Parameter, Zustand
+from kern.signale import nachlauf_aktiv, signal_bewerten, sp_phase, t_gueltig, werte_ermitteln
+from kern.typen import (ABBRAND, AKTION_BRENNSTOFF_HOLZ, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, BRIKETTS, HOLZ, NEU,
+                        PARITAET, SIGNAL_FRISCH, STANDBY, TUER_OFFEN, Eingaben, Ergebnis, Meldung, Parameter,
+                        Zustand)
 
 MAX_DT_S = 30   # längere Lücken (Neustart, Verbindung weg) zählen nicht als Regelzeit
 
@@ -17,6 +19,49 @@ class Profil:
     regeln: tuple[Regel, ...]
     i_takt_s: float
     neu: bool = False
+
+
+# In diesen Phasen brennen Briketts oder schwelen auf der Glut: Der Nachlauf zählt von dort an neu.
+BRIKETT_FEUER = (TUER_OFFEN, ANHEIZEN, ABBRAND, AUSBRAND, ANHEIZFEHLER)
+TITEL = "🔥 Kamin"
+
+
+def brikett_parameter(p: Parameter) -> Parameter:
+    """Der Parametersatz für Briketts: die Holzwerte, ersetzt durch die Brikett-Felder."""
+    return replace(p, startfenster=p.startfenster_brikett, anheizen_timeout=p.anheizen_timeout_brikett,
+                   klappe_min_abbrand=p.klappe_min_abbrand_brikett, klappe_glut=p.klappe_glut_brikett,
+                   glut_max_dauer=p.glut_max_dauer_brikett, abkuehlen_max_dauer=p.abkuehlen_max_dauer_brikett)
+
+
+def brikett_nachfuehren(e: Eingaben, z: Zustand, p: Parameter) -> tuple[list[str], list[Meldung]]:
+    """Nach den Regeln: Nachlauf verlängern, beim Zurückstellen auf Holz halten, am Ende freigeben.
+
+    Der Zeitstempel wird nie verkürzt. Nur Regelstand neu.
+    """
+    aktionen: list[str] = []
+    meldungen: list[Meldung] = []
+    vorher, z.brennstoff = z.brennstoff, e.brennstoff
+    warm = t_gueltig(e.t) and e.t >= p.t_abkuehlen
+    kalt = t_gueltig(e.t) and e.t < p.t_kalt
+    bis = e.jetzt + p.brikett_nachlauf * 60
+
+    def verlaengern() -> None:
+        z.brikett_nachlauf_bis = bis if z.brikett_nachlauf_bis is None else max(z.brikett_nachlauf_bis, bis)
+
+    if e.brennstoff == BRIKETTS and (z.phase in (ABBRAND, AUSBRAND) or (z.phase in BRIKETT_FEUER and warm)):
+        verlaengern()
+    elif vorher == BRIKETTS and e.brennstoff == HOLZ and not (z.phase == STANDBY and kalt):
+        # Holz auf die Restglut: Die Kohle darunter glüht weiter.
+        verlaengern()
+    if (z.phase == STANDBY and kalt and z.brikett_nachlauf_bis is not None
+            and e.jetzt >= z.brikett_nachlauf_bis):
+        z.brikett_nachlauf_bis = None
+        if e.brennstoff == BRIKETTS:
+            z.brennstoff = HOLZ
+            aktionen.append(AKTION_BRENNSTOFF_HOLZ)
+            meldungen.append(Meldung(TITEL, "Brikett-Nachlauf beendet, der Ofen ist kalt. "
+                                            "Brennstoff steht wieder auf Holz."))
+    return aktionen, meldungen
 
 
 def _profil(regelstand: str, takt_s: float) -> Profil:
@@ -52,8 +97,11 @@ class Steuerung:
         """Ändert self.zustand; Ergebnis.zustand ist eine Momentaufnahme davon."""
         z, profil = self.zustand, self._profil
         dt, signal = self._vorbereiten(e) if profil.neu else (profil.i_takt_s, SIGNAL_FRISCH)
-        w = werte_ermitteln(e, self.parameter, z)
-        lauf = Lauf(e=e, p=self.parameter, z=z, w=w, neu=profil.neu, signal=signal)
+        brikett = profil.neu and e.brennstoff == BRIKETTS
+        p = brikett_parameter(self.parameter) if brikett else self.parameter
+        nachlauf = profil.neu and nachlauf_aktiv(e, z, self.parameter, brikett)
+        w = werte_ermitteln(e, p, z, brikett=brikett, nachlauf=nachlauf)
+        lauf = Lauf(e=e, p=p, z=z, w=w, neu=profil.neu, signal=signal)
 
         phasen.regeln_anwenden(profil.regeln, lauf)
         if not lauf.gestoppt:
@@ -65,6 +113,10 @@ class Steuerung:
             soll = (klappe.soll_neu(e, z, w, dt) if profil.neu
                     else klappe.soll_berechnen(e, z, w))
             klappe.soll_schreiben(z, soll)
+        if profil.neu:
+            aktionen, meldungen = brikett_nachfuehren(e, z, self.parameter)
+            lauf.aktionen.extend(aktionen)
+            lauf.meldungen.extend(meldungen)
 
         return Ergebnis(zustand=replace(z), klappe=int(z.klappe_soll), regel=lauf.regel,
                         uebergang=lauf.uebergang, meldungen=lauf.meldungen,

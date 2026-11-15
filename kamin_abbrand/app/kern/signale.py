@@ -148,9 +148,27 @@ class Werte:
     kfeuer: float
     kkalt: float
     t_kalt_ende: float
+    # Brennstoff (nur Regelstand neu)
+    brikett: bool = False               # Briketts gewählt: Parameter sind schon ersetzt
+    nachlauf: bool = False              # Kohle glüht womöglich noch: Klappe nicht unter kglut_brikett
+    kglut_brikett: float = 25
 
 
-def werte_ermitteln(e: Eingaben, p: Parameter, z: Zustand) -> Werte:
+def nachlauf_aktiv(e: Eingaben, z: Zustand, p: Parameter, brikett: bool) -> bool:
+    """Brikett-Nachlauf: gewählt oder noch nicht vorbei, und dann erst zu Ende, wenn der Ofen kalt ist.
+
+    Das gilt auch, nachdem auf Holz zurückgestellt wurde: Die Kohle unter dem Holz glüht weiter.
+    """
+    bis = z.brikett_nachlauf_bis
+    if bis is not None and e.jetzt < bis:
+        return True
+    if not (brikett or bis is not None):
+        return False
+    return not t_gueltig(e.t) or e.t >= p.t_kalt
+
+
+def werte_ermitteln(e: Eingaben, p: Parameter, z: Zustand, brikett: bool = False,
+                    nachlauf: bool = False) -> Werte:
     t = t_oder_null(e.t)
     tref = z.t_phasenstart
     return Werte(
@@ -203,4 +221,7 @@ def werte_ermitteln(e: Eingaben, p: Parameter, z: Zustand) -> Werte:
         kfeuer=p.klappe_anheizen_feuer,
         kkalt=p.klappe_kaltstart,
         t_kalt_ende=p.t_kaltstart_ende,
+        brikett=brikett,
+        nachlauf=nachlauf,
+        kglut_brikett=p.klappe_glut_brikett,
     )

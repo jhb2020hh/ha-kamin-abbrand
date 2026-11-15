@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.5
+
+Enthält auch die Punkte der nicht veröffentlichten 0.4.4.
+
+- Neu: Brennstoff „Briketts“ für Braunkohlebriketts auf der Glut (Issue #3). Du wählst Holz oder Briketts auf der Startseite oder in Home Assistant (`select.kamin_app_brennstoff`). Umstellen geht in jeder Phase, auch mitten im Abbrand; die Phase läuft weiter, nur die Werte wechseln. Mit Briketts gilt nur im Betrieb (Regelstand neu):
+  - Anheizen mit Klappe 100 %, Zeit für den Mindestanstieg 20 min, Anheizfehler erst nach 60 min. Der stille Rücksprung in die Glut entfällt, damit die Briketts nicht mit 10 % Klappe ersticken.
+  - Abbrand mit mindestens 50 % Klappe, Glut mit 25 % und bis zu 7 h.
+  - Nachlauf: Die Klappe bleibt in Glut, Abkühlen, Anheizfehler und Standby mindestens auf 25 %, bis der Ofen unter `t_kalt` ist **und** 10 h seit dem letzten Brikett-Feuer vergangen sind. Das gilt auch, wenn du danach wieder auf Holz stellst, etwa morgens Holz auf die Restglut legst. Der Nachlauf übersteht einen Neustart der App. Danach stellt die App selbst auf Holz zurück.
+  - Die Werte stehen unter Einstellungen → Parameter → Briketts. Sie sind teils Annahmen und sollen mit den ersten Auflagen geprüft werden.
+- Neu: Nachrichtenart „Briketts“: Erinnerung an die Regler am Ofen beim Umstellen (Briketts: Automatikregler 2 Uhr, Sekundärluft 30 %; Holz: 5 Uhr, 45–50 %), Ende der Glut mit Uhrzeit, bis zu der die Klappe offen bleibt, und Ende des Nachlaufs. Die Nachricht beim Nachlegen nennt bei Briketts die Höchstmenge von 2,12 kg.
+- Neu: Kosten zählen Brikett-Auflagen getrennt, mit eigener Menge (Vorgabe 2,12 kg), eigenem Preis je kg und 5,3 kWh/kg Heizwert. Stellst du im laufenden Abbrand um, zählt die Auflage für den neuen Brennstoff. Die Tageswerte zeigen die Brikett-Auflagen mit „B“, die Spalte heißt jetzt „Brennstoff“.
+- Behoben: Im Betrieb fiel die App auf Lauschen zurück, wenn die Abgastemperatur länger als die Fühler-Zeitgrenze (10 min) auf demselben Wert stand, etwa nachts in der Glut. Home Assistant meldet gleichbleibende Werte nicht weiter, für die App sah der Fühler deshalb stumm aus. Ist „Alter des Fühlersignals“ zugewiesen, gilt der Fühler jetzt als lebendig, solange dort frische Datenpakete ankommen (höchstens 60 s alt). Ohne diese Rolle bleibt es bei der Zeitgrenze.
+- Behoben: „Klappe in der Glut“ lässt sich bis 100 % einstellen, vorher war bei 50 % Schluss.
+
 ## 0.4.3
 
 - Neu: Die Seite „Verlauf“ lädt sich alle 10 s selbst neu, das Zeitfenster läuft also mit. Solange der Zeiger auf der Grafik steht, bleibt sie stehen, damit der abgelesene Wert nicht wegspringt.

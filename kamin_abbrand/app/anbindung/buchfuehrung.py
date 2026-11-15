@@ -25,6 +25,7 @@ from anbindung.anlagenprofil import Anlagenprofil
 from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import EinstellungsFehler, atomar_schreiben
 from kern import wirtschaft
+from kern.typen import BRIKETTS, HOLZ
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,8 @@ VERSION = 1
 EINSTELLUNGEN: dict[str, tuple[float, float, str]] = {
     "investition": (0.0, 10_000_000.0, "Investition"),
     "laufende_kosten_jahr": (0.0, 1_000_000.0, "Laufende Kosten je Jahr"),
+    "brikett_kg_je_auflage": (0.1, 50.0, "Briketts je Auflage"),
+    "brikett_eur_je_kg": (0.0, 100.0, "Brikettpreis je kg"),
     "jahreswaerme_kwh": (0.0, 1_000_000.0, "Erwartete Kaminwärme je Jahr"),
     "referenz_a": (0.0, 100_000.0, "Referenz a"),
     "referenz_b": (0.0, 10_000.0, "Referenz b"),
@@ -44,7 +47,8 @@ EINSTELLUNGEN: dict[str, tuple[float, float, str]] = {
     "raum_wasser_verhaeltnis": (0.0, 5.0, "Verhältnis Raum- zu Wasserwärme"),
     "aufstellraum_anteil": (0.0, 1.0, "Anteil Aufstellraum"),
 }
-VORGABEN = {"raum_wasser_verhaeltnis": wirtschaft.VORGABE_RAUM_WASSER, "aufstellraum_anteil": wirtschaft.VORGABE_AUFSTELLRAUM}
+VORGABEN = {"raum_wasser_verhaeltnis": wirtschaft.VORGABE_RAUM_WASSER, "aufstellraum_anteil": wirtschaft.VORGABE_AUFSTELLRAUM,
+            "brikett_kg_je_auflage": wirtschaft.BRIKETT_KG_JE_AUFLAGE}
 SALDO: dict[str, tuple[float, float, str]] = {
     "kaminwaerme_kwh": (0.0, 10_000_000.0, "Kaminwärme"),
     "holz_kg": (0.0, 10_000_000.0, "Holz"),
@@ -75,7 +79,8 @@ def _zahl(roh: Any, minimum: float, maximum: float, titel: str) -> Optional[floa
 
 
 def _neue_zeile() -> dict:
-    return {"auflagen": 0, "holz_kg": 0.0, "holz_eur": 0.0, "waerme_holz_kwh": 0.0, "waerme_zaehler_kwh": None,
+    return {"auflagen": 0, "holz_kg": 0.0, "holz_eur": 0.0, "brikett_auflagen": 0, "brikett_kg": 0.0,
+            "brikett_eur": 0.0, "waerme_holz_kwh": 0.0, "waerme_zaehler_kwh": None,
             "verbrauch_kwh": None, "t_summe": 0.0, "t_s": 0.0, "s": 0.0, "laufend_eur": 0.0, "ohne_menge": False,
             "waerme_s": 0.0, "waerme_luecke": False, "final": False}
 
@@ -194,28 +199,69 @@ class Buchfuehrung:
         if zeile is not None and not zeile.get("final"):
             zeile |= wirtschaft.tag_auswerten(zeile, k, False)
 
-    def auflage(self, jetzt: float, delta: int, profil: Anlagenprofil) -> None:
-        """+1 für eine erkannte oder nachgetragene Auflage, −1 für eine Korrektur. Heute, nie unter 0."""
+    def auflage(self, jetzt: float, delta: int, profil: Anlagenprofil, brennstoff: str = HOLZ) -> None:
+        """+1 für eine erkannte oder nachgetragene Auflage, −1 für eine Korrektur. Heute, nie unter 0.
+
+        `auflagen` zählt alle Auflagen, `brikett_auflagen` davon die mit Briketts. Holz und Briketts haben
+        eigene Mengen, Preise und Heizwerte. Die geschätzte Wärme (`waerme_holz_kwh`) enthält beide."""
         k = self.konfiguration(profil)
         tag = _tag(jetzt)
         zeile = self._zeile(tag, k)
-        n = zeile["auflagen"]
         if delta > 0:
-            zeile["auflagen"] = n + 1
-            if k.kg_je_auflage is None:
-                zeile["ohne_menge"] = True
-            else:
-                kg = k.kg_je_auflage
-                zeile["holz_kg"] += kg
-                zeile["holz_eur"] += 0.0 if k.holz_eur_je_kg is None else kg * k.holz_eur_je_kg
-                zeile["waerme_holz_kwh"] += wirtschaft.nutzwaerme_aus_holz(kg, k.holz_heizwert, k.holz_nutzungsgrad)
-        elif n > 0:
+            self._buchen_auflage(zeile, k, brennstoff)
+        elif zeile["auflagen"] > 0:
+            n = zeile["auflagen"]
             rest = (n - 1) / n      # Anteilig zurücknehmen: Auch eine geänderte kg-Angabe bleibt stimmig
             zeile["auflagen"] = n - 1
-            for name in ("holz_kg", "holz_eur", "waerme_holz_kwh"):
-                zeile[name] *= rest
+            for name in ("holz_kg", "holz_eur", "waerme_holz_kwh", "brikett_kg", "brikett_eur"):
+                if name in zeile:
+                    zeile[name] *= rest
+            if zeile.get("brikett_auflagen"):
+                zeile["brikett_auflagen"] = round(zeile["brikett_auflagen"] * rest)
         self._vorlaeufig(tag, k)
         self.sichern(True)
+
+    def umbuchen(self, jetzt: float, nach: str, profil: Anlagenprofil) -> bool:
+        """Die letzte Auflage von heute bekommt einen anderen Brennstoff (umgestellt im laufenden Abbrand)."""
+        k = self.konfiguration(profil)
+        tag = _tag(jetzt)
+        zeile = self.tage.get(tag)
+        if zeile is None or zeile.get("auflagen", 0) < 1:
+            return False
+        briketts = zeile.get("brikett_auflagen", 0)
+        if nach == BRIKETTS and briketts >= zeile["auflagen"]:
+            return False
+        if nach == HOLZ and briketts < 1:
+            return False
+        von = HOLZ if nach == BRIKETTS else BRIKETTS
+        self._buchen_auflage(zeile, k, von, -1)
+        self._buchen_auflage(zeile, k, nach)
+        self._vorlaeufig(tag, k)
+        self.sichern(True)
+        return True
+
+    @staticmethod
+    def _buchen_auflage(zeile: dict, k: wirtschaft.Konfiguration, brennstoff: str, vorzeichen: int = 1) -> None:
+        """Eine Auflage dazu (+1) oder genau eine mit ihren Mengen wieder weg (−1, nur beim Umbuchen)."""
+        zeile["auflagen"] += vorzeichen
+        if brennstoff == BRIKETTS:
+            kg = k.brikett_kg_je_auflage
+            zeile["brikett_auflagen"] = zeile.get("brikett_auflagen", 0) + vorzeichen
+            zeile["brikett_kg"] = max(zeile.get("brikett_kg", 0.0) + vorzeichen * kg, 0.0)
+            preis = 0.0 if k.brikett_eur_je_kg is None else kg * k.brikett_eur_je_kg
+            zeile["brikett_eur"] = max(zeile.get("brikett_eur", 0.0) + vorzeichen * preis, 0.0)
+            waerme = wirtschaft.nutzwaerme_aus_holz(kg, k.brikett_heizwert, k.holz_nutzungsgrad)
+        elif k.kg_je_auflage is None:
+            if vorzeichen > 0:
+                zeile["ohne_menge"] = True
+            return
+        else:
+            kg = k.kg_je_auflage
+            zeile["holz_kg"] = max(zeile["holz_kg"] + vorzeichen * kg, 0.0)
+            preis = 0.0 if k.holz_eur_je_kg is None else kg * k.holz_eur_je_kg
+            zeile["holz_eur"] = max(zeile["holz_eur"] + vorzeichen * preis, 0.0)
+            waerme = wirtschaft.nutzwaerme_aus_holz(kg, k.holz_heizwert, k.holz_nutzungsgrad)
+        zeile["waerme_holz_kwh"] = max(zeile["waerme_holz_kwh"] + vorzeichen * waerme, 0.0)
 
     def tick(self, jetzt: float, messung: Messung, profil: Anlagenprofil) -> None:
         """Ein Takt: Zähler lesen, Zeit und Außentemperatur erfassen, den Tag vorläufig bewerten."""

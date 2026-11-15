@@ -37,6 +37,13 @@ QUITTIEREN = "quittieren"           # Fehler von Hand bestätigt (nur Regelstand
 # Aktionen, die die Anbindung ausführt (im Parallelbetrieb nur protokolliert)
 AKTION_SNIFFER_RESTART = "sniffer_restart"
 AKTION_WARTUNG_AUS = "wartung_aus"
+AKTION_BRENNSTOFF_HOLZ = "brennstoff_holz"   # Brikett-Nachlauf vorbei: Wahl zurück auf Holz
+
+# Brennstoff je Auflage, von Hand gewählt (nur Regelstand neu). Die Abgastemperatur trennt
+# Holz und Braunkohlebriketts beim Arena Aqua 2.0 nicht (DIBt Z-43.11-408, Tab. 1).
+HOLZ = "Holz"
+BRIKETTS = "Briketts"
+BRENNSTOFFE = (HOLZ, BRIKETTS)
 
 # Signalzustand des Abgaswerts (nur Regelstand neu aussagekräftig)
 SIGNAL_FRISCH = "frisch"
@@ -89,10 +96,23 @@ class Parameter:
     puffer_voll: float = 60
     fuehler_timeout: float = 600        # s
     feuer_twt_anstieg: float = 3        # K in 10 min
+    # Brennstoff Briketts (nur Regelstand neu, nur in der App, ohne Live-Helfer). Herleitung in Issue #3.
+    startfenster_brikett: float = 20            # min
+    anheizen_timeout_brikett: float = 60        # min
+    klappe_min_abbrand_brikett: float = 50      # %
+    klappe_glut_brikett: float = 25             # %, auch Untergrenze im Brikett-Nachlauf
+    glut_max_dauer_brikett: float = 420         # min
+    abkuehlen_max_dauer_brikett: float = 600    # min
+    brikett_nachlauf: float = 600               # min nach dem letzten Brikett-Feuer
 
     @classmethod
     def feldnamen(cls) -> tuple[str, ...]:
         return tuple(f.name for f in fields(cls))
+
+    @classmethod
+    def helfer_feldnamen(cls) -> tuple[str, ...]:
+        """Felder mit Live-Helfer input_number.kamin_abbrand_<feld>; die übrigen kennt nur die App."""
+        return tuple(f for f in cls.feldnamen() if f not in NUR_APP_FELDER)
 
 
 @dataclass
@@ -114,6 +134,7 @@ class Eingaben:
     dp_alter_s: Optional[float] = None  # Sekunden seit der letzten Druckänderung
     can_alter_s: Optional[float] = None  # Sekunden seit dem letzten CAN-Frame (nach dem Flashen)
     tuerkontakt_vorhanden: bool = True
+    brennstoff: str = HOLZ
 
 
 @dataclass
@@ -130,6 +151,14 @@ class Zustand:
     t_tief: Optional[float] = None       # tiefste Temperatur seit Phasenbeginn
     letzter_lauf: Optional[float] = None
     klappe_genau: Optional[float] = None  # Soll ungerundet, damit die Schließrate je 5 s stimmt
+    brennstoff: Optional[str] = None     # Wahl im letzten Lauf, um das Umstellen zu erkennen
+    brikett_nachlauf_bis: Optional[float] = None  # bis dahin glüht womöglich noch Kohle (CO)
+
+
+NUR_APP_FELDER = frozenset({
+    "startfenster_brikett", "anheizen_timeout_brikett", "klappe_min_abbrand_brikett", "klappe_glut_brikett",
+    "glut_max_dauer_brikett", "abkuehlen_max_dauer_brikett", "brikett_nachlauf",
+})
 
 
 @dataclass
