@@ -45,7 +45,7 @@ async function api(pfad, inhaltDaten) {
       : "Die Anmeldung bei Home Assistant ist abgelaufen. Bitte die Seite neu laden.");
   }
   const daten = await antwort.json().catch(() => ({}));
-  if (!antwort.ok) throw new Error(daten.fehler || `Fehler ${antwort.status}`);
+  if (!antwort.ok) { const f = new Error(daten.fehler || `Fehler ${antwort.status}`); f.daten = daten; throw f; }
   return daten;
 }
 let toastUhr;
@@ -670,7 +670,15 @@ async function eingaengeZeichnen() {
 }
 
 // ---- Einstellungen -----------------------------------------------------
-async function setzen(name, wert) { await api("api/parameter", { name, wert }); }
+// Manche Werte gelten erst nach Rückfrage (Mindestklappe unter 5 %). Die App protokolliert die Bestätigung.
+async function setzen(name, wert) {
+  try { await api("api/parameter", { name, wert }); }
+  catch (f) {
+    if (!f.daten || !f.daten.rueckfrage) throw f;
+    if (!confirm(f.daten.rueckfrage)) throw new Error("Nicht geändert.");
+    await api("api/parameter", { name, wert, bestaetigt: true });
+  }
+}
 function feldZeile(f, neu) {
   const eingabe = h("input", { type: "number", min: f.minimum, max: f.maximum, step: f.schritt, value: f.wert, "aria-label": f.titel, onchange: async (e) => { try { await setzen(f.name, e.target.value === "" ? null : Number(e.target.value)); toast(`${f.titel} gespeichert`); neu(); } catch (x) { melden(x); neu(); } } });
   return h("div", { klasse: "feld" },
@@ -678,7 +686,8 @@ function feldZeile(f, neu) {
     h("div", { klasse: "eingabe" }, eingabe, h("span", { klasse: "leise" }, f.einheit)),
     h("div", { klasse: "unten" }, h("span", { klasse: "chip" + (f.eigen ? " eigen" : "") }, f.quelle),
       f.eigen && f.live !== null && h("span", { klasse: "leise" }, `Automation: ${zahl(f.live, 2)} ${f.einheit}`),
-      f.eigen && h("button", { klasse: "textknopf", onclick: async () => { await setzen(f.name, null); toast("Zurückgesetzt"); neu(); } }, "Zurücksetzen")));
+      f.eigen && h("button", { klasse: "textknopf", onclick: async () => { await setzen(f.name, null); toast("Zurückgesetzt"); neu(); } }, "Zurücksetzen")),
+    f.rueckfrage_bestaetigt && h("p", { klasse: "warnung" }, `Unter ${zahl(f.rueckfrage_unter, 0)} ${f.einheit} am ${uhr(f.rueckfrage_bestaetigt.zeit)} bestätigt.`));
 }
 async function einstellungenZeichnen() {
   const d = await api("api/parameter");
@@ -756,7 +765,7 @@ async function serviceZeichnen() {
       h("table", { klasse: "kv", stil: "margin-top:8px" }, h("tbody", {}, zeile("Automatisch angeboten", i.discovery ? "ja" : "nein, bitte von Hand hinzufügen"), zeile("Adresse", `${d.host}:${d.port}`),
         zeile("Token", h("span", {}, tok, " ", h("button", { klasse: "textknopf", onclick: () => { tok.textContent = d.token; } }, "anzeigen")))))),
     h("div", { klasse: "karte" }, h("h2", {}, "Letzte Meldungen"), d.meldungen.length ? d.meldungen.map((m) => h("div", { klasse: "meldung" }, h("time", {}, uhr(m.zeit)), m.text)) : h("p", { klasse: "leise" }, "Noch keine Meldungen seit dem Start.")),
-    h("div", { klasse: "karte" }, h("h2", {}, "Letzte Änderungen"), d.aenderungen.length ? d.aenderungen.map((m) => h("div", { klasse: "meldung" }, h("time", {}, uhr(m.zeit)), `${m.was}: ${typeof m.neu === "object" && m.neu !== null ? "geändert" : `${m.alt ?? "Automation"} → ${m.neu ?? "Automation"}`}`)) : h("p", { klasse: "leise" }, "Noch keine Änderungen.")));
+    h("div", { klasse: "karte" }, h("h2", {}, "Letzte Änderungen"), d.aenderungen.length ? d.aenderungen.map((m) => h("div", { klasse: "meldung" }, h("time", {}, uhr(m.zeit)), `${m.was}: ${m.was === "rueckfrage_bestaetigt" && m.neu ? `${m.neu.feld} auf ${m.neu.wert} bestätigt` : typeof m.neu === "object" && m.neu !== null ? "geändert" : `${m.alt ?? "Automation"} → ${m.neu ?? "Automation"}`}`)) : h("p", { klasse: "leise" }, "Noch keine Änderungen.")));
 }
 
 // ---- Einmessen: reine Hilfsfunktionen (ohne DOM) ----

@@ -357,6 +357,52 @@ def test_parameter_aendern_landet_im_protokoll():
     mit_web(p)
 
 
+def test_mindestklappe_unter_5_prozent_nur_mit_rueckfrage_und_protokoll():
+    async def p(ober, _, app, ha, tmp):
+        def felder(d):
+            return {f["name"]: f for t in d["themen"] for f in t["felder"]}
+        protokoll = tmp / "aenderungen.jsonl"
+        f = felder(await (await ober.get("/api/parameter")).json())["klappe_min_abbrand"]
+        assert f["minimum"] == 0 and f["rueckfrage_unter"] == 5 and f["rueckfrage_bestaetigt"] is None
+
+        r = await ober.post("/api/parameter", json={"name": "klappe_min_abbrand", "wert": 0})
+        antwort = await r.json()
+        assert r.status == 409 and "Kohlenmonoxid" in antwort["rueckfrage"] and antwort["fehler"]
+        assert "klappe_min_abbrand" not in app.speicher.parameter_neu and not protokoll.exists()
+        # Nur ein klares true zählt.
+        assert (await ober.post("/api/parameter", json={"name": "klappe_min_abbrand", "wert": 0, "bestaetigt": "ja"})).status == 409
+
+        r = await ober.post("/api/parameter", json={"name": "klappe_min_abbrand", "wert": 0, "bestaetigt": True})
+        assert r.status == 200
+        await warte_auf(lambda: app.parameter_neu.klappe_min_abbrand == 0)
+        zeilen = [json.loads(z) for z in protokoll.read_text().splitlines()]
+        assert [z["was"] for z in zeilen] == ["rueckfrage_bestaetigt", "klappe_min_abbrand"]
+        best = zeilen[0]["neu"]
+        assert best["feld"] == "klappe_min_abbrand" and best["wert"] == 0 and best["grenze"] == 5
+        assert "Kohlenmonoxid" in best["text"] and best["version"] == VERSION and zeilen[0]["zeit"] == zeilen[1]["zeit"]
+        f = felder(await (await ober.get("/api/parameter")).json())["klappe_min_abbrand"]
+        assert f["wert"] == 0 and f["rueckfrage_bestaetigt"]["wert"] == 0
+
+        # Ab 5 % ohne Rückfrage, die Bestätigung erlischt; darunter wird wieder gefragt.
+        assert (await ober.post("/api/parameter", json={"name": "klappe_min_abbrand", "wert": 5})).status == 200
+        assert app.speicher.rueckfrage("klappe_min_abbrand") is None
+        assert (await ober.post("/api/parameter", json={"name": "klappe_min_abbrand", "wert": 2})).status == 409
+        for name in ("klappe_min_entgasung", "klappe_min_abbrand_brikett"):
+            assert (await ober.post("/api/parameter", json={"name": name, "wert": 0})).status == 409
+            assert (await ober.post("/api/parameter", json={"name": name, "wert": 0, "bestaetigt": True})).status == 200
+        assert (await ober.post("/api/parameter", json={"name": "klappe_min_entgasung", "wert": None})).status == 200
+        assert app.speicher.rueckfrage("klappe_min_entgasung") is None
+        assert app.speicher.rueckfrage("klappe_min_abbrand_brikett")["wert"] == 0
+        # Andere Felder kennen keine Rückfrage.
+        assert (await ober.post("/api/parameter", json={"name": "klappe_glut", "wert": 0})).status == 200
+    mit_web(p)
+
+
+def test_version_wie_in_config_yaml():
+    config = (Path(__file__).parents[2] / "kamin_abbrand" / "config.yaml").read_text()
+    assert f'version: "{VERSION}"' in config
+
+
 def test_autotune_verlauf_sagt_wenn_daten_fehlen_und_aktiv_ist_gesperrt():
     async def p(ober, *_):
         d = await (await ober.post("/api/autotune/verlauf", json={})).json()

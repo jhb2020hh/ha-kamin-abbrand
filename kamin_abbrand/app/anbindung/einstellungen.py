@@ -125,10 +125,25 @@ class Feld:
     maximum: float
     schritt: float
     einheit: str
+    # Werte unter dieser Grenze gelten erst nach ausdrücklicher Rückfrage, die protokolliert wird.
+    rueckfrage_unter: Optional[float] = None
 
 
-def _f(name: str, titel: str, hilfe: str, minimum: float, maximum: float, schritt: float, einheit: str) -> Feld:
-    return Feld(name, titel, hilfe, minimum, maximum, schritt, einheit)
+def _f(name: str, titel: str, hilfe: str, minimum: float, maximum: float, schritt: float, einheit: str,
+       rueckfrage_unter: Optional[float] = None) -> Feld:
+    return Feld(name, titel, hilfe, minimum, maximum, schritt, einheit, rueckfrage_unter)
+
+
+# Mindestklappe im Abbrand: 0 % ist erlaubt, unter 5 % aber nur nach Rückfrage.
+KLAPPE_RUECKFRAGE_UNTER = 5.0
+
+
+def rueckfrage_text(feld: Feld, wert: float) -> str:
+    return (f"{feld.titel} auf {wert:g} {feld.einheit} setzen?\n\n"
+            f"Unter {feld.rueckfrage_unter:g} {feld.einheit} darf der Regler die Luft im Abbrand fast oder ganz "
+            "schließen, auch bei voller Flamme. Das Feuer kann dann schwelen und viel Kohlenmonoxid (CO) bilden, "
+            "bei Briketts besonders. Ein funktionierender CO-Melder muss im Raum sein.\n\n"
+            "Die Bestätigung wird mit Zeit und Wert protokolliert.")
 
 
 # Gehört nur zur App, nicht zum Regelkern (kein Feld von kern.typen.Parameter).
@@ -162,9 +177,11 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
         _f("t_ziel_eco", "Ziel bei Eco", "Zieltemperatur für die Leistung Eco.", 120, 500, 5, "°C"),
         _f("t_ziel_normal", "Ziel bei Normal", "Zieltemperatur für die Leistung Normal.", 120, 500, 5, "°C"),
         _f("t_ziel_power", "Ziel bei Power", "Zieltemperatur für die Leistung Power.", 120, 500, 5, "°C"),
-        _f("klappe_min_abbrand", "Klappe mindestens", "Weiter schließt die Klappe im Abbrand nicht.", 5, 100, 5, "%"),
+        _f("klappe_min_abbrand", "Klappe mindestens", "Weiter schließt die Klappe im Abbrand nicht. Unter 5 % nur nach Rückfrage.",
+           0, 100, 5, "%", KLAPPE_RUECKFRAGE_UNTER),
         _f("klappe_max_abbrand", "Klappe höchstens", "Weiter öffnet die Klappe im Abbrand nicht.", 20, 100, 5, "%"),
-        _f("klappe_min_entgasung", "Klappe mindestens beim Entgasen", "In den ersten Minuten braucht das Holz mehr Luft.", 5, 100, 5, "%"),
+        _f("klappe_min_entgasung", "Klappe mindestens beim Entgasen", "In den ersten Minuten braucht das Holz mehr Luft. Unter 5 % nur nach Rückfrage.",
+           0, 100, 5, "%", KLAPPE_RUECKFRAGE_UNTER),
         _f("entgasung_dauer", "Dauer der Entgasung", "So lange gilt die höhere Mindeststellung.", 0, 40, 1, "min"),
         _f("klappe_schliessrate", "Schließgeschwindigkeit", "So weit schließt die Klappe höchstens je 30 s.", 1, 50, 1, "%"),
         _f("regler_i_start_kalt", "Startwert kalter Ofen", "Klappenstellung, mit der der Regler nach dem Kaltstart beginnt.", 20, 100, 5, "%"),
@@ -182,7 +199,8 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
     ("Briketts", (
         _f("startfenster_brikett", "Zeit für den Mindestanstieg", "Wie bei Holz, nur für Briketts. Bis dahin gilt ein Anheizen nicht als Fehlstart.", 5, 60, 1, "min"),
         _f("anheizen_timeout_brikett", "Höchstdauer Anheizen", "Danach meldet die App einen Anheizfehler. Briketts zünden langsamer als Holz.", 10, 180, 5, "min"),
-        _f("klappe_min_abbrand_brikett", "Klappe mindestens im Abbrand", "Braunkohle braucht viel Luft, sonst steigt das CO stark an.", 5, 100, 5, "%"),
+        _f("klappe_min_abbrand_brikett", "Klappe mindestens im Abbrand", "Braunkohle braucht viel Luft, sonst steigt das CO stark an. Unter 5 % nur nach Rückfrage.",
+           0, 100, 5, "%", KLAPPE_RUECKFRAGE_UNTER),
         _f("klappe_glut_brikett", "Klappe in der Glut", "Auch Untergrenze, solange Briketts nachglühen. Nie 0 %, die Kohle bildet sonst viel CO.", 5, 100, 1, "%"),
         _f("glut_max_dauer_brikett", "Höchstdauer Glut", "Braunkohle glüht etwa viermal so lange wie Holz.", 60, 720, 10, "min"),
         _f("abkuehlen_max_dauer_brikett", "Höchstdauer Abkühlen", "Danach geht der Ofen in Standby, die Klappe bleibt trotzdem bis zum Ende des Nachlaufs offen.", 60, 900, 10, "min"),
@@ -223,6 +241,10 @@ FELDER = {f.name: f for _, felder in PARAMETER_THEMEN for f in felder} | {f.name
 
 class EinstellungsFehler(ValueError):
     """Die Eingabe passt nicht; der Text ist für die Oberfläche bestimmt."""
+
+
+class RueckfrageNoetig(EinstellungsFehler):
+    """Der Wert ist erlaubt, gilt aber erst nach Bestätigung. Der Text ist die Rückfrage."""
 
 
 def atomar_schreiben(pfad: Path, daten: Any) -> None:
@@ -300,6 +322,8 @@ class Speicher:
         daten["automation_von_app_aus"] = daten.get("automation_von_app_aus") is True
         if not isinstance(daten.get("betrieb_bestaetigung"), dict):
             daten["betrieb_bestaetigung"] = {}
+        if not isinstance(daten.get("rueckfragen"), dict):
+            daten["rueckfragen"] = {}
         massgeblich = daten.get("einmessen_massgeblich")
         daten["einmessen_massgeblich"] = (massgeblich if isinstance(massgeblich, str)
                                           and EINMESS_ID_MUSTER.fullmatch(massgeblich) else None)
@@ -518,8 +542,17 @@ class Speicher:
         self.speichern()
         return profil
 
-    def parameter_setzen(self, name: str, wert: Any) -> Optional[float]:
-        """None nimmt den eigenen Wert zurück, dann gilt wieder der Helfer oder die Vorgabe."""
+    def rueckfrage(self, name: str) -> Optional[dict]:
+        """Bestätigte Rückfrage zum aktuellen eigenen Wert: {zeit, wert}, sonst None."""
+        eintrag = self.daten["rueckfragen"].get(name)
+        return eintrag if isinstance(eintrag, dict) else None
+
+    def parameter_setzen(self, name: str, wert: Any, bestaetigt: bool = False,
+                         jetzt: Optional[float] = None) -> Optional[float]:
+        """None nimmt den eigenen Wert zurück, dann gilt wieder der Helfer oder die Vorgabe.
+
+        Liegt der Wert unter feld.rueckfrage_unter, gilt er nur mit bestaetigt=True, sonst RueckfrageNoetig.
+        Die Bestätigung bleibt bis zum nächsten Wert ab der Grenze gespeichert."""
         feld = FELDER.get(name)
         if feld is None or (name not in Parameter.feldnamen() and name not in EIGENE_FELDER):
             raise EinstellungsFehler(f"Unbekannter Wert: {name}")
@@ -529,6 +562,7 @@ class Speicher:
         schluessel = "intervall_h" if name == REINIGUNG_FELD else name
         if wert is None:
             ziel.pop(schluessel, None)
+            self.daten["rueckfragen"].pop(name, None)
             self._leistung_nachfuehren(name)
             self.speichern()
             return None
@@ -538,6 +572,13 @@ class Speicher:
         if not feld.minimum <= zahl <= feld.maximum:
             raise EinstellungsFehler(
                 f"{feld.titel}: Erlaubt sind {feld.minimum:g} bis {feld.maximum:g} {feld.einheit}.")
+        if feld.rueckfrage_unter is not None and zahl < feld.rueckfrage_unter:
+            if bestaetigt is not True:
+                raise RueckfrageNoetig(rueckfrage_text(feld, zahl))
+            self.daten["rueckfragen"][name] = {"zeit": datetime.now().timestamp() if jetzt is None else jetzt,
+                                               "wert": zahl}
+        else:
+            self.daten["rueckfragen"].pop(name, None)
         ziel[schluessel] = zahl
         self._leistung_nachfuehren(name)
         self.speichern()

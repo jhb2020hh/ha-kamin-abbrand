@@ -118,3 +118,10 @@ def test_rundung_typen_wie_ha():
     assert str(runde(230.4)) == "230"
     assert str(runde(0, 1)) == "0.0"
     assert str(runde(62.0, 1)) == "62.0"
+
+
+def test_abbrand_darf_mit_mindestklappe_null_ganz_schliessen():
+    # 0 % gilt nur nach Rückfrage in der Oberfläche, der Kern nimmt den Wert wie jeden anderen.
+    p = Parameter(klappe_min_abbrand=0, klappe_min_entgasung=0)
+    assert klappe_nach(ABBRAND, 1000, dict(i_anteil=0.0, t_maximum=300.0, klappe_soll=5), p, t=300.0) == 0
+    assert klappe_nach(ABBRAND, 1000, dict(i_anteil=0.0, t_maximum=300.0, klappe_soll=5), None, t=300.0) == 35

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7
+
+- Geändert: „Klappe mindestens“ im Abbrand lässt sich bis 0 % einstellen, ebenso „Klappe mindestens beim Entgasen“ und bei Briketts „Klappe mindestens im Abbrand“. Bisher war bei 5 % Schluss. Unter 5 % fragt die App nach: Der Regler darf die Luft dann auch bei voller Flamme fast oder ganz schließen, das Feuer kann schwelen und viel CO bilden. Erst nach Bestätigung gilt der Wert.
+- Neu: Jede solche Bestätigung steht mit Zeit, Wert, Grenze, Rückfragetext und App-Version im Änderungsprotokoll (`rueckfrage_bestaetigt` in `aenderungen.jsonl`) und unter Diagnose bei den letzten Änderungen. Am Feld steht, wann sie bestätigt wurde. Ein Wert ab 5 % oder „Zurücksetzen“ hebt die Bestätigung auf, für einen neuen Wert unter 5 % fragt die App erneut.
+- Behoben: Die Oberfläche zeigte als Version noch 0.3.9.
+
 ## 0.4.6
 
 - Geändert: Auto-Tune „Aus dem Verlauf berechnen“ arbeitet als Schwingungsbremse. Bisher legte es Tangenten an Klappensprünge. Im laufenden Regelkreis sind diese Sprünge aber die Antwort des Reglers auf die Schwingung selbst, deshalb wurden die Vorschläge mit jedem Lauf schärfer (Kp 0,36 → 0,47, Tn 7,3 → 6,0 min), und die Abgastemperatur schwang weiter, nach dem Abbrandstart mit 3 min Periode und bis ±15 K. Jetzt gilt:

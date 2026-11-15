@@ -28,7 +28,8 @@ from anbindung.ansicht import (AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_
                                QUITTIEREN_LAUSCHEN_TEXT)
 from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, LEISTUNG_VORGABE, PARAMETER_THEMEN,
-                                     REGLER_FELDER, ROLLEN, EinstellungsFehler)
+                                     REGLER_FELDER, ROLLEN, EinstellungsFehler, RueckfrageNoetig,
+                                     rueckfrage_text)
 from anbindung.ha_client import VerbindungWeg
 from kern import autotune
 from kern.typen import Parameter
@@ -42,7 +43,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.3.9"
+VERSION = "0.4.7"     # Wie version in config.yaml, ein Test prüft das.
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -143,6 +144,9 @@ class Webserver:
     async def _fehlerbehandlung(self, anfrage: web.Request, handler: Handler) -> web.StreamResponse:
         try:
             return await handler(anfrage)
+        except RueckfrageNoetig as frage:
+            # Kein Fehler im eigentlichen Sinn: Die Oberfläche fragt nach und schickt den Wert mit bestaetigt=true.
+            return web.json_response({"fehler": str(frage), "rueckfrage": str(frage)}, status=409)
         except EinstellungsFehler as fehler:
             return web.json_response({"fehler": str(fehler)}, status=400)
         except ValueError:
@@ -348,7 +352,8 @@ class Webserver:
         quelle = "Eigener Wert der App" if eigen is not None else ("Live-Helfer" if hat_helfer else "Vorgabe")
         wert = eigen if eigen is not None else getattr(app.eingaenge.parameter, name)
         return dataclasses.asdict(feld) | {"wert": wert, "quelle": quelle, "eigen": eigen is not None,
-                                            "live": getattr(app.eingaenge.parameter, name)}
+                                            "live": getattr(app.eingaenge.parameter, name),
+                                            "rueckfrage_bestaetigt": app.speicher.rueckfrage(name) if eigen is not None else None}
 
     async def _parameter(self, _: web.Request) -> web.Response:
         profil = self.app.speicher.anlagenprofil
@@ -361,16 +366,24 @@ class Webserver:
             "autotune_aktiv_gesperrt": AUTOTUNE_GESPERRT,
         })
 
-    def _setzen(self, name: str, wert: Any) -> Any:
-        speicher = self.app.speicher
+    def _setzen(self, name: str, wert: Any, bestaetigt: bool = False) -> Any:
+        speicher, jetzt = self.app.speicher, time.time()
         alt = speicher.eigener_wert(name) if name in EIGENE_FELDER else speicher.parameter_neu.get(name)
-        neu = speicher.parameter_setzen(name, wert)
-        self.app.verlauf.aenderung(time.time(), name, alt, neu)
+        neu = speicher.parameter_setzen(name, wert, bestaetigt=bestaetigt, jetzt=jetzt)
+        if (frage := speicher.rueckfrage(name)) is not None and frage.get("zeit") == jetzt:
+            # Die Bestätigung steht vor der Änderung im Protokoll, mit dem Text, dem zugestimmt wurde.
+            feld = FELDER[name]
+            self.app.verlauf.aenderung(jetzt, "rueckfrage_bestaetigt", None,
+                                       {"feld": name, "wert": neu, "grenze": feld.rueckfrage_unter,
+                                        "text": rueckfrage_text(feld, neu), "version": VERSION})
+            log.warning("%s auf %g %% gesetzt, Rückfrage unter %g %% bestätigt", name, neu, feld.rueckfrage_unter)
+        self.app.verlauf.aenderung(jetzt, name, alt, neu)
         return neu
 
     async def _parameter_setzen(self, anfrage: web.Request) -> web.Response:
         inhalt = await anfrage.json()
-        return web.json_response({"wert": self._setzen(str(inhalt.get("name")), inhalt.get("wert"))})
+        return web.json_response({"wert": self._setzen(str(inhalt.get("name")), inhalt.get("wert"),
+                                                       bestaetigt=inhalt.get("bestaetigt") is True)})
 
     def _leistung_setzen(self, modus: Any) -> float:
         speicher, jetzt = self.app.speicher, time.time()
