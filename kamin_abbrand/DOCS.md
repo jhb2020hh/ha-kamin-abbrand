@@ -45,7 +45,7 @@ Es gibt drei Arten von Fehlern. Bei allen steht die Klappe auf 100 %.
 
 | Fehler | Ursache | Ende ohne Zutun |
 |---|---|---|
-| **Störung** | Abgasfühler oder LUC liefern keine frischen Werte | sobald wieder frische Werte kommen |
+| **Störung** | Der Abgasfühler (oder der LUC) liefert keine frischen Werte, siehe Parameter → Sicherheit | sobald wieder frische Werte kommen |
 | **Anheizfehler** | Abbrandtemperatur nicht erreicht oder Feuer nach < 15 min zusammengefallen | nach 90 min Standby, bei Temperaturanstieg wieder Anheizen |
 | **Klappenstörung** | Klappe nimmt keine Befehle an oder folgt der Sollstellung nicht | sobald ein Befehl wieder ankommt bzw. die Stellung wieder passt |
 
@@ -76,8 +76,9 @@ Das Menü **Einstellungen** hat sechs Reiter:
   Die Mindestklappe im Abbrand („Klappe mindestens“, beim Entgasen und bei Briketts) geht bis 0 %. Unter 5 % fragt die App nach, weil der Regler die Luft dann auch bei voller Flamme ganz schließen darf. Das Feuer kann schwelen und viel Kohlenmonoxid bilden. Stelle das nur ein, wenn ein CO-Melder im Raum ist. Die Bestätigung protokolliert die App mit Zeit und Wert im Änderungsprotokoll (`aenderungen.jsonl`, Eintrag `rueckfrage_bestaetigt`) und zeigt sie am Feld an. Ein Wert ab 5 % oder „Zurücksetzen“ hebt sie auf.
 - **Anlage:** Ofen normal (luftgeführt) oder wassergeführt, Puffer, Pumpe, Klappe, Türkontakt, Wärmeerzeuger, Einheiten, Holz. Die Erzeuger lassen sich beliebig kombinieren.
 - **Ein-/Ausgänge:** Sensoren und Schalter zuweisen. Pflicht ist nur die Abgastemperatur. Änderungen gelten ohne Neustart. Bei wassergeführten Öfen weist du hier auch die Fühler und den Wärmemengenzähler zu, getrennt nach Energie und Leistung.
-- **Regelung:** Regelstrategie „Klassisch“ (PI mit Vorhalt, Vorgabe) oder „Regelstrategie 2.0“. 2.0 regelt ohne Vorhalt mit eigenen Grundwerten (Kp 0,3 %/K, Tn 2 min). Ein Schwingungswächter achtet im Abbrand auf regelmäßiges Pendeln der Abgastemperatur (mindestens 8 K Hub, 1,3–10 min Periode). Erkennt er es, nimmt er die Verstärkung auf 70 % zurück und verlängert die Nachstellzeit, bis höchstens auf 30 %. Nach 15 min ohne Pendeln gibt er schrittweise wieder frei. Die Dämpfung lernt die App nur im Betrieb und behält sie über Abbrände und Neustarts. Der Reiter Regler zeigt sie mit den wirksamen Werten und kann sie auf 100 % zurücksetzen.
-- **Regler:** Bei „Klassisch“ Kp, Tn und Kd sowie Auto-Tune. „Aus dem Verlauf berechnen“ prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage, mindestens 30 min Abbrand) auf Schwingungen der Abgastemperatur. Schwingt sie, senkt der Vorschlag die Verstärkung, die der Regler bei dieser Periode wirklich hat: bei abklingender Schwingung auf 70 %, bei Dauerschwingung auf ein Drittel. Tn wird mindestens 2,2 Perioden, und der D-Anteil geht auf 0. Ist der Regelkreis ruhig, gibt es keinen neuen Vorschlag, die Werte werden also nie schärfer. „Vorschlag übernehmen“ setzt Kp, Tn und Kd zusammen. Der Testlauf mit gezielter Klappenbewegung ist derzeit gesperrt.
+- **Regler:** Oben die Wahl der Regelstrategie: „Klassisch“ (PI mit Vorhalt, Vorgabe) oder „Regelstrategie 2.0“ (PI ohne Vorhalt mit Schwingungswächter). Darunter stehen die Werte der gewählten Strategie. Bei 2.0 zeigt die Seite die Dämpfung, die wirksamen Werte und den Zeitpunkt der letzten Dämpfung, dazu „Dämpfung auf 100 % zurücksetzen“. Was die Werte bewirken, steht unten unter „Regelung und Parameter erklärt“.
+
+  Bei „Klassisch“ gibt es Kp, Tn und Kd sowie Auto-Tune. „Aus dem Verlauf berechnen“ prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage, mindestens 30 min Abbrand) auf Schwingungen der Abgastemperatur. Schwingt sie, senkt der Vorschlag die Verstärkung, die der Regler bei dieser Periode wirklich hat: bei abklingender Schwingung auf 70 %, bei Dauerschwingung auf ein Drittel. Tn wird mindestens 2,2 Perioden, und der D-Anteil geht auf 0. Ist der Regelkreis ruhig, gibt es keinen neuen Vorschlag, die Werte werden also nie schärfer. „Vorschlag übernehmen“ setzt Kp, Tn und Kd zusammen. Der Testlauf mit gezielter Klappenbewegung ist derzeit gesperrt.
 
   Der D-Anteil (Kd) wirkt auf den Temperaturanstieg der letzten 2 min. Der hinkt etwa eine Minute nach. Bei Schwingungen um 3–4 min wirkt Kd deshalb wie zusätzliche Verstärkung: Kd 1 verdreifacht sie dort ungefähr. Lass ihn auf 0.
 - **Einmessen:** Aufzeichnung eines von Hand geregelten Abbrands, aus der die App Grenzwerte für deinen Ofen und Fühler vorschlägt (siehe unten).
@@ -102,6 +103,100 @@ Den Brennstoff wählst du auf der Startseite (Holz oder Briketts) oder in Home A
 Mit Briketts zündet die App mit ganz offener Klappe, wartet länger auf den Abbrand, regelt mit mindestens 50 % und hält die Glut mit 25 %. Braunkohle glüht bis zu neun Stunden nach und bildet ohne Luft viel Kohlenmonoxid, auch wenn das Abgas schon kalt wirkt. Deshalb bleibt die Klappe nach dem letzten Brikett-Feuer mindestens auf der Glut-Stellung, bis der Ofen kalt ist und der Nachlauf (Vorgabe 10 h) vorbei ist. Das gilt auch nach dem Zurückstellen auf Holz. Danach stellt die App selbst auf Holz zurück. Die Regler am Ofen stellst du von Hand: bei Briketts Automatikregler auf 2 Uhr und Sekundärluft 30 %, bei Holz zurück auf 5 Uhr und 45–50 %. Ein CO-Melder im Aufstellraum gehört dazu. Im Lauschen wirkt die Wahl nur auf die Berechnung.
 
 Unter Einstellungen → Apps stehen nur `log_stufe` und `helfer_praefix`. Fehlen die Helfer einer Live-Automation, startet die App nach einer Minute im Standby mit ihren Vorgaben.
+
+## Regelung und Parameter erklärt
+
+Dieser Abschnitt erklärt die Begriffe und was jede Einstellung bewirkt. Die Zahlen in Klammern sind Vorgaben; was bei dir gilt, zeigt die App am Feld.
+
+### Begriffe
+
+| Begriff | Bedeutung |
+|---|---|
+| Abgastemperatur (T) | Messwert am Rauchrohr. Die Regelgröße: Die App führt sie im Abbrand auf das Ziel. |
+| Ziel | Die gewünschte Abgastemperatur im Abbrand (`t_ziel`, über die Leistungsknöpfe Eco/Normal/Power gesetzt). Höher heißt mehr Leistung und schnelleres Abbrennen, niedriger heißt sparsamer und länger, aber zu niedrig verrußt die Scheibe. |
+| Regelabweichung | Ziel minus Abgastemperatur. Positiv: zu kalt, die Klappe geht auf. Negativ: zu heiß, die Klappe geht zu. |
+| Klappe (Stellgröße) | Öffnung der Zuluftklappe in %. 0 % zu, 100 % ganz offen. Mehr Luft heißt im Abbrand mehr Flamme und mehr Abgastemperatur. |
+| Phase | Abschnitt des Feuers: Standby, Tür offen, Anheizen, Abbrand, Ausbrand, Glut, Abkühlen, dazu Anheizfehler, Störung, Wartung. Geregelt wird nur im Abbrand. In den anderen Phasen gilt eine feste Stellung. |
+| Totzeit | Wie lange es dauert, bis eine Klappenbewegung am Abgasfühler ankommt. An deinem Ofen gemessen: 35–80 s. Je länger, desto vorsichtiger muss ein Regler sein. |
+| Streckenverstärkung | Wie viele Kelvin die Abgastemperatur je % Klappe ändert. Gemessen: 0,7 bis 2,7 K/%, je nach Holz und Abbrandstand. Bei hoher Verstärkung schwingt ein scharfer Regler leicht. |
+| Schwingung | Die Temperatur pendelt regelmäßig um das Ziel, weil der Regler zu spät und zu stark nachsteuert. Typisch hier: 3 min Periode, ±10 K, die Klappe pendelt mit. |
+| P-Anteil, Verstärkung Kp | Sofortige Reaktion auf die Abweichung: Klappe ändert sich um Kp × Abweichung. Kp 0,3 %/K heißt: 10 K zu heiß, also 3 % weniger Klappe. Größer reagiert schneller, schwingt aber eher. Kleiner ist ruhiger, aber träger. |
+| I-Anteil, Nachstellzeit Tn | Der Teil der Klappe, der eine bleibende Abweichung langsam wegarbeitet. Er gleicht aus, dass das Holz im Lauf des Abbrands mehr Luft braucht. Kürzeres Tn arbeitet schneller nach, macht aber unruhiger. Längeres Tn ist ruhiger, die Temperatur bleibt dann länger neben dem Ziel. Der I-Anteil steht im Experten-Modus auf der Startseite. |
+| D-Anteil, Vorhalt Kd | Nur bei „Klassisch“. Reagiert auf den Anstieg der letzten 2 min. Der Anstieg hinkt etwa 1 min nach, deshalb verstärkt Kd bei 3–4 min Periode die Schwingung. Empfohlen: 0. |
+| Anti-Windup | Steht die Klappe an ihrer Grenze (mindestens/höchstens), wächst der I-Anteil nicht weiter. So überschießt der Regler danach nicht. |
+| Startwert | Mit dieser Klappenstellung (I-Anteil) beginnt der Regler beim Eintritt in den Abbrand, abhängig davon, wie heiß der Ofen beim Anheizen war. |
+| Schwingungswächter | Nur bei 2.0. Er zählt Umkehrpunkte der Abgastemperatur: Ein Umkehrpunkt gilt, wenn die Temperatur danach mindestens 8 K zurückläuft. Drei gleichmäßige Halbwellen von 40–300 s heißen Schwingung. |
+| Dämpfung | Nur bei 2.0. Faktor, mit dem der Wächter den Regler beruhigt: Kp wirksam = Kp × Dämpfung, Tn wirksam = Tn ÷ √Dämpfung. Bei 100 % gelten die Grundwerte. Je Schwingung sinkt sie auf 70 % des bisherigen Werts, nie unter 30 %. Nach 15 min ruhigem Abbrand steigt sie um 10 %. Gelernt wird nur im Betrieb, und sie bleibt über Abbrände und Neustarts erhalten. |
+| Lauschen / Betrieb | Im Lauschen rechnet die App nur mit, die Klappe stellt die Automation in HA. Im Betrieb stellt die App die Klappe. |
+
+### Regelstrategie
+
+- **Klassisch:** PI-Regler mit optionalem Vorhalt und festen Werten (Kp, Tn, Kd). Auto-Tune „Aus dem Verlauf“ schlägt bei Schwingung ruhigere Werte vor, du bestätigst sie.
+- **Regelstrategie 2.0:** PI-Regler ohne Vorhalt mit Grundwerten Kp 0,3 %/K und Tn 2 min. Der Schwingungswächter dämpft selbst, sobald die Temperatur pendelt, und gibt nach ruhiger Zeit wieder frei. Grund: Dein Ofen reagiert je nach Holz bis zu viermal unterschiedlich stark auf die Klappe. Feste Werte wären entweder für das eine Holz zu scharf oder für das andere zu träge.
+
+Was du bei 2.0 beobachten kannst: Sinkt die Dämpfung bei jedem Abbrand auf 30 %, ist der Grundwert Kp zu hoch; stelle ihn etwas niedriger. Bleibt sie immer bei 100 % und die Temperatur liegt lange unter dem Ziel, darf Kp etwas höher oder Tn etwas kürzer sein. Nach einer Änderung der Grundwerte lohnt sich „Dämpfung auf 100 % zurücksetzen“.
+
+### Regler (Einstellungen → Regler)
+
+| Einstellung | Wirkung |
+|---|---|
+| Regelstrategie | Klassisch oder 2.0, gilt ab dem nächsten Takt (5 s). |
+| Verstärkung Kp (2.0: 0,3 %/K) | Höher reagiert schneller auf Abweichungen und schwingt eher. Niedriger ist ruhiger und träger. |
+| Nachstellzeit Tn (2.0: 2 min) | Kürzer: Bleibende Abweichungen sind schneller weg, aber unruhiger. Länger: ruhiger, folgt dem Abbrand langsamer. |
+| Vorhalt Kd (nur Klassisch) | Auf 0 lassen (siehe Begriffe). |
+
+### Parameter (Einstellungen → Parameter)
+
+**Anheizen**
+
+| Einstellung | Wirkung |
+|---|---|
+| Abbrand beginnt bei | Ab dieser Abgastemperatur wechselt das Feuer vom Anheizen in den Abbrand und die Regelung beginnt. Höher: länger mit viel Luft anheizen. Niedriger: früher regeln, das Feuer kann zu früh gedrosselt werden. |
+| Anstieg für Feuererkennung | So schnell (K/min) muss die Temperatur steigen, damit die App ein Feuer erkennt. Höher verhindert Fehlalarme, erkennt aber später. |
+| Mindestanstieg nach dem Öffnen / Zeit dafür | Steigt die Temperatur nach dem Türöffnen nicht so weit in dieser Zeit, war es kein Anheizen (Fehlstart), und die App kehrt still zurück. |
+| Mindestdauer kalter Ofen / beim Nachlegen / auf heißem Feuer | So lange bleibt das Anheizen mindestens, auch wenn die Temperatur schon reicht. Länger gibt dem Holz mehr Zeit zum Durchzünden. |
+| Höchstdauer Anheizen | Wird der Abbrand bis dahin nicht erreicht, meldet die App einen Anheizfehler. |
+| Klappe beim Kaltstart / Kaltstart offen bis | Kaltstart: Mit dieser Stellung zündet der kalte Ofen. Sie gilt bis zur angegebenen Abgastemperatur. |
+| Klappe beim Nachlegen | Stellung beim Nachlegen auf einen heißen Ofen. Weniger Luft verhindert, dass die frische Auflage durchschießt. |
+| Ofen gilt als kalt unter | Darunter darf die Klappe ganz schließen (Standby). |
+
+**Abbrand**
+
+| Einstellung | Wirkung |
+|---|---|
+| Zieltemperatur, Ziel bei Eco/Normal/Power | Siehe Begriff „Ziel“. Die Leistungsknöpfe wählen einen dieser Werte. |
+| Klappe mindestens | Untergrenze der Regelung. Höher hält die Flamme sicher, auch wenn es zu heiß wird. Niedriger drosselt stärker, das Feuer kann aber ersticken und CO bilden (unter 5 % nur nach Rückfrage). Liegt die Klappe oft an dieser Grenze und die Temperatur trotzdem über dem Ziel, ist das Ziel für dieses Holz zu niedrig. |
+| Klappe höchstens | Obergrenze der Regelung. |
+| Klappe mindestens beim Entgasen / Dauer der Entgasung | In den ersten Minuten nach dem Auflegen gast das Holz stark aus und braucht mehr Luft. So lange gilt die höhere Untergrenze. |
+| Schließgeschwindigkeit | So viel % darf die Klappe je 30 s höchstens zugehen. Langsamer verhindert, dass ein heißer Moment das Feuer abwürgt. Öffnen ist nicht begrenzt. |
+| Startwert kalter / heißer Ofen | Klappe, mit der der Regler im Abbrand beginnt. Passt der Startwert, gibt es beim Übergang weniger Überschwingen. |
+
+**Glut**
+
+| Einstellung | Wirkung |
+|---|---|
+| Abfall für Ausbrand | So weit muss die Temperatur vom Höchstwert fallen, bis der Abbrand als Ausbrand gilt. Dann hält die App die Klappe konstant offen, statt nachzuregeln. |
+| Glut beginnt unter / Abkühlen beginnt unter | Temperaturgrenzen für die Phasen Glut und Abkühlen. |
+| Klappe in der Glut | Wenig Luft hält die Glut lange, mehr Luft brennt sie schneller ab. |
+| Höchstdauer Glut / Abkühlen | Danach wechselt die Phase von selbst. |
+| Puffer gilt als voll ab | Ab dieser Puffertemperatur rät die App vom Nachlegen ab. |
+
+**Briketts:** wie Holz, mit eigenen Werten für Braunkohlebriketts (siehe „Brennstoff Briketts“).
+
+**Sicherheit**
+
+| Einstellung | Wirkung |
+|---|---|
+| Übertemperatur ab / Klappe bei Übertemperatur | Darüber drosselt die App sofort auf diese Stellung, in jeder Phase. |
+| Wasser höchstens / Klappe bei heißem Wasser | Schützt den Wasserkreis. Ist das Wasser zu heiß, begrenzt die App die Klappe auf diese Stellung. |
+| Abgasfühler | **LEDA LUC:** Der LUC meldet den Abgaswert nur, wenn er sich ändert. Ein stehender Wert ist deshalb kein Ausfall, solange Druck oder CAN-Alter vom LUC frisch sind. **Eigener Fühler:** Ein eigener Fühler (zum Beispiel ein ESPHome-Thermoelement) meldet regelmäßig. Dann zählt nur sein eigenes Alter, der LUC kann einen toten Fühler nicht mehr überdecken. |
+| Fühler gilt ohne Feuer als stumm nach | Bleibt der Abgaswert ohne Feuer (Standby, Glut, Abkühlen) so lange ohne Meldung, gilt der Fühler als stumm. Ohne Feuer folgt daraus nur dann eine Störung, wenn das Wasser am Ofen steigt. Home Assistant meldet nur geänderte Werte, auch ein lebender Fühler kann in Ruhe mehrere Minuten still wirken. Deshalb nicht unter 300 s. |
+| Fühler gilt bei Feuer als stumm nach | Bei Feuer (Anheizen, Abbrand, Ausbrand) geht die App nach dieser Zeit ohne Meldung in **Störung** und öffnet die Klappe ganz. Kleiner heißt schneller sicher, aber Funklöcher lösen dann eher eine Störung aus. Faustregel: sechs ausgelassene Meldungen. Ein Fühler mit 5-s-Takt verträgt 30 s, der LUC braucht die Vorgabe 120 s. |
+| Störung bei ausgefallenem Fühler nach | Ist der Abgasfühler in Home Assistant „nicht verfügbar“ oder „unbekannt“ (Funk weg, Gerät neu gestartet, Thermoelement offen), geht die App nach dieser Zeit in Störung und öffnet die Klappe. Vorgabe 60 s. |
+| Feuer am Wasser erkannt ab | Steigt das Wasser in 10 min so weit, nimmt die App auch ohne Abgasanstieg ein Feuer an. |
+| Wartung endet nach / Klappe in der Wartung / Klappe im Handbetrieb | Feste Stellungen für Reinigung und Handbetrieb. |
+
+**Wasserseite und Wartung:** Grenzen für Warnungen zu Rücklauf, Vorlauf und Pumpe sowie die Erinnerung zur Reinigung des Wärmetauschers. Sie stellen die Klappe nicht.
 
 ## Kosten
 

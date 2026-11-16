@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import atomar_schreiben
-from kern.signale import CAN_STUMM_S, T_DECKEL
+from kern.signale import CAN_STUMM_S, T_DECKEL, fuehler_eigen
 from kern.typen import NEU, PHASEN, Zustand
 
 log = logging.getLogger(__name__)
@@ -92,7 +92,8 @@ def abgas_frisch(app: Any, eid: str, jetzt: float) -> bool:
         return False
     if jetzt - eintrag.gemeldet <= app.parameter_neu.fuehler_timeout:
         return True
-    return _can_lebt(app, jetzt)
+    # Ein eigener Fühler meldet regelmäßig; das CAN-Alter des LUC sagt über ihn nichts.
+    return not fuehler_eigen(app.parameter_neu) and _can_lebt(app, jetzt)
 
 
 def _can_lebt(app: Any, jetzt: float) -> bool:

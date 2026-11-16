@@ -1,8 +1,20 @@
 # Changelog
 
+## 0.5.2
+
+- Neu: Unter Parameter → Sicherheit wählst du den Abgasfühler: „LEDA LUC“ (Vorgabe, wie bisher) oder „Eigener Fühler“. Ein eigener Fühler meldet regelmäßig, dann zählt nur sein eigenes Alter. Bisher galt bei Feuer die jüngste Meldung von Abgas oder Druck, und der Druck kommt weiter vom LUC. Ein eigener Fühler, der verbunden bleibt, aber nichts mehr meldet, wäre bei Feuer nicht aufgefallen, solange der LUC lief. Fällt er ganz aus („nicht verfügbar“), griff schon bisher die Störung.
+- Neu einstellbar: „Fühler gilt bei Feuer als stumm nach“ (Vorgabe 120 s, bisher fest) und „Störung bei ausgefallenem Fühler nach“ (Vorgabe 60 s, bisher fest). Für einen Fühler mit 5-s-Takt reichen jeweils 30 s.
+- Behoben: Seit 0.5.0 öffnete sich der Reiter Ein-/Ausgänge nicht mehr („Cannot read properties of undefined“), und die Zählerauswahl unter Anlage brach ab. Eine neue Funktion hatte denselben Namen wie die Sensorauswahl. Ein Test verhindert das jetzt.
+- Layout: Auswahlfelder werden nicht mehr abgeschnitten. Bei Werten, die es nur in der App gibt, stand fälschlich „Automation: …“, jetzt steht dort die Vorgabe. Am Handy stehen die Messwert-Kacheln zu zweit nebeneinander, und die Phasenleiste bricht um, statt die Namen zu kürzen.
+
+## 0.5.1
+
+- Geändert: Die Regelstrategie wählst du jetzt oben unter Einstellungen → Regler. Bisher stand sie unter Parameter.
+- Neu: In der Dokumentation erklärt der Abschnitt „Regelung und Parameter erklärt“ die Begriffe (Totzeit, Kp, Tn, Kd, Dämpfung, Schwingungswächter usw.) und was jede Einstellung bewirkt.
+
 ## 0.5.0
 
-- Neu: Regelstrategie 2.0, wählbar unter Einstellungen → Regelung (Vorgabe bleibt „Klassisch“). Sie soll das Pendeln der Abgastemperatur im Abbrand beenden (am 16.11. ±10–12 K mit 3 min Periode, Klappe 30–51 %).
+- Neu: Regelstrategie 2.0, wählbar (Vorgabe bleibt „Klassisch“). Sie soll das Pendeln der Abgastemperatur im Abbrand beenden (am 16.11. ±10–12 K mit 3 min Periode, Klappe 30–51 %).
   - Ursache laut Verlauf 14.–16.11. (20 Abbrände): Die Klappe wirkt erst nach 35–80 s auf das Abgas, und je nach Holz und Abbrandstand mit 0,7 bis 2,7 K je % Klappe. Ein fest eingestellter Regler ist für die steile Strecke zu scharf. Der Vorhalt (Kd) auf dem 2-min-Anstieg hinkt etwa 1 min nach und verstärkt die Schwingung zusätzlich.
   - 2.0 regelt als PI ohne Vorhalt mit eigenen Grundwerten (Kp 0,3 %/K, Tn 2 min, im Reiter Regler einstellbar).
   - Ein Schwingungswächter beobachtet im Abbrand die Umkehrpunkte der Abgastemperatur (mindestens 8 K Hub, Halbwellen 40–300 s). Drei regelmäßige Halbwellen gelten als Schwingung: Die Verstärkung sinkt auf 70 %, die Nachstellzeit wird länger, bis höchstens 30 % Dämpfung. Nach 15 min Abbrand ohne Schwingung steigt sie um 10 %.

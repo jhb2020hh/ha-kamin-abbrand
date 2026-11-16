@@ -82,7 +82,7 @@ ROLLEN: tuple[Rolle, ...] = (
           ("sensor",)),
     Rolle("t_aussen", "Außentemperatur", "Vergleicht Tage mit und ohne Feuer bei gleichem Wetter.",
           ("sensor",), einheit="°C", fahrenheit=True),
-    Rolle("druck", "Kaminzug", "Differenzdruck am Schornstein. Dient auch als Lebenszeichen des Fühlers.",
+    Rolle("druck", "Kaminzug", "Differenzdruck am Schornstein, in Pa, Zug positiv. Nur zur Anzeige. Beim Abgasfühler „LEDA LUC“ zählt er zugleich als Lebenszeichen.",
           ("sensor",)),
     Rolle("lueftung", "Lüftung frei", "Freigabe der Lüftung, zum Beispiel vom Unterdruckwächter. Wird nur angezeigt.",
           ("binary_sensor",)),
@@ -136,6 +136,7 @@ def _f(name: str, titel: str, hilfe: str, minimum: float, maximum: float, schrit
     return Feld(name, titel, hilfe, minimum, maximum, schritt, einheit, rueckfrage_unter, auswahl)
 
 
+FUEHLER_AUSWAHL = ((1.0, "LEDA LUC"), (2.0, "Eigener Fühler"))
 STRATEGIE_AUSWAHL = ((1.0, "Klassisch (PI mit Vorhalt)"), (2.0, "Regelstrategie 2.0"))
 
 
@@ -163,13 +164,6 @@ _WASSER_VORGABE = {"wasser_ruecklauf_min": "ruecklauf_min", "wasser_vorlauf_warn
                    "wasser_vorlauf_alarm": "vorlauf_alarm", "wasser_pumpe_t_wt": "pumpe_t_wt"}
 
 PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
-    ("Regelung", (
-        _f("regelstrategie", "Regelstrategie",
-           "Klassisch: PI-Regler mit Vorhalt (Kp, Tn, Kd im Reiter Regler). Regelstrategie 2.0: PI ohne Vorhalt "
-           "mit Schwingungswächter. Er erkennt im Abbrand eine Schwingung der Abgastemperatur und dämpft den "
-           "Regler selbst, bis sie aufhört. Gilt ab dem nächsten Takt.",
-           1, 2, 1, "", auswahl=STRATEGIE_AUSWAHL),
-    )),
     ("Anheizen", (
         _f("t_abbrandstart", "Abbrand beginnt bei", "Ab dieser Abgastemperatur gilt das Feuer als gut angebrannt.", 80, 400, 5, "°C"),
         _f("gradient_start", "Anstieg für Feuererkennung", "So schnell muss die Temperatur steigen, damit die App ein Feuer erkennt.", 0.5, 30, 0.5, "K/min"),
@@ -223,7 +217,11 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
         _f("klappe_uebertemperatur", "Klappe bei Übertemperatur", "Stellung, solange die Temperatur zu hoch ist.", 0, 100, 5, "%"),
         _f("t_wasser_max", "Wasser höchstens", "Darüber drosselt die App, um das Wasser zu schützen.", 60, 100, 1, "°C"),
         _f("klappe_wasser", "Klappe bei heißem Wasser", "Stellung, solange das Wasser zu heiß ist.", 0, 100, 5, "%"),
-        _f("fuehler_timeout", "Fühler gilt als stumm nach", "So lange darf der Messwert ohne Meldung bleiben.", 60, 3600, 30, "s"),
+        _f("fuehler_art", "Abgasfühler", "LEDA LUC: meldet nur Änderungen, Druck und CAN-Alter überbrücken einen stehenden Wert. "
+           "Eigener Fühler: meldet regelmäßig, nur sein eigenes Alter zählt.", 1, 2, 1, "", auswahl=FUEHLER_AUSWAHL),
+        _f("fuehler_timeout", "Fühler gilt ohne Feuer als stumm nach", "So lange darf der Messwert ohne Meldung bleiben, solange kein Feuer brennt.", 60, 3600, 30, "s"),
+        _f("fuehler_timeout_feuer", "Fühler gilt bei Feuer als stumm nach", "Bei Feuer (Anheizen, Abbrand, Ausbrand) geht die App danach in Störung und öffnet die Klappe ganz.", 15, 600, 5, "s"),
+        _f("fuehler_ausfall", "Störung bei ausgefallenem Fühler nach", "So lange darf der Abgasfühler in Home Assistant „nicht verfügbar“ sein.", 10, 300, 5, "s"),
         _f("feuer_twt_anstieg", "Feuer am Wasser erkannt ab", "So viel muss das Wasser in 10 Minuten steigen.", 1, 20, 0.5, "K"),
         _f("wartung_timeout", "Wartung endet nach", "Danach beendet die App die Wartung von selbst.", 5, 240, 5, "min"),
         _f("klappe_wartung", "Klappe in der Wartung", "Stellung zum Reinigen.", 0, 100, 5, "%"),
@@ -248,6 +246,11 @@ REGLER_FELDER: tuple[Feld, ...] = (
     _f("regler_nachstellzeit", "Nachstellzeit Tn", "In welcher Zeit der Regler bleibende Abweichungen ausgleicht.", 1, 60, 0.5, "min"),
     _f("regler_vorhaltung", "Vorhalt Kd", "Wirkt auf den Anstieg über 2 min. Der hinkt etwa 1 min nach und macht den Regler bei Schwingungen um 3–4 min schärfer statt ruhiger. Empfohlen: 0 (aus).", 0, 20, 0.5, "%·min/K"),
 )
+STRATEGIE_FELD = _f("regelstrategie", "Regelstrategie",
+       "Klassisch: PI-Regler mit Vorhalt (Kp, Tn, Kd). Regelstrategie 2.0: PI ohne Vorhalt "
+       "mit Schwingungswächter. Er erkennt im Abbrand eine Schwingung der Abgastemperatur und dämpft den "
+       "Regler selbst, bis sie aufhört. Gilt ab dem nächsten Takt.",
+       1, 2, 1, "", auswahl=STRATEGIE_AUSWAHL)
 REGLER2_FELDER: tuple[Feld, ...] = (
     _f("regler2_verstaerkung", "Verstärkung Kp", "Grundwert der Regelstrategie 2.0. Der Schwingungswächter nimmt ihn "
        "bei Schwingung selbst zurück (Dämpfung).", 0.05, 2, 0.05, "%/K"),
@@ -255,7 +258,7 @@ REGLER2_FELDER: tuple[Feld, ...] = (
        0.5, 30, 0.5, "min"),
 )
 FELDER = ({f.name: f for _, felder in PARAMETER_THEMEN for f in felder} | {f.name: f for f in REGLER_FELDER}
-          | {f.name: f for f in REGLER2_FELDER})
+          | {f.name: f for f in REGLER2_FELDER} | {STRATEGIE_FELD.name: STRATEGIE_FELD})
 
 
 class EinstellungsFehler(ValueError):

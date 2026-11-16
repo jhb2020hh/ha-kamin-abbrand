@@ -1025,3 +1025,13 @@ def test_brikett_felder_auf_der_einstellungsseite_ohne_live_helfer():
         app.parameter_neu_auffrischen()
         assert app.parameter_neu.glut_max_dauer_brikett == 360
     mit_web(p)
+
+
+def test_app_js_ohne_doppelte_funktionsnamen():
+    """0.5.0: Ein zweites `function auswahlFeld` überdeckte das erste, Ein-/Ausgänge brach ab."""
+    import collections
+    import re
+    quelltext = (Path(__file__).parents[2] / "kamin_abbrand/app/web/app.js").read_text(encoding="utf-8")
+    namen = re.findall(r"^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(", quelltext, re.M)
+    doppelt = [n for n, k in collections.Counter(namen).items() if k > 1]
+    assert namen and not doppelt

@@ -229,11 +229,11 @@ class Eingaenge:
 
     # ---- Abfragen -----------------------------------------------------
 
-    def pruefe_sensor_weg(self, jetzt: float) -> bool:
-        """True genau einmal je Ausfall, sobald das Abgas 60 s durchgehend weg ist."""
+    def pruefe_sensor_weg(self, jetzt: float, nach_s: float = SENSOR_WEG_NACH_S) -> bool:
+        """True genau einmal je Ausfall, sobald das Abgas `nach_s` (Vorgabe 60 s) durchgehend weg ist."""
         if self._weg_seit is None or self._weg_gemeldet:
             return False
-        if jetzt - self._weg_seit < SENSOR_WEG_NACH_S:
+        if jetzt - self._weg_seit < nach_s:
             return False
         self._weg_gemeldet = True
         return True

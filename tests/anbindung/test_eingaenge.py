@@ -267,3 +267,11 @@ def test_klappe_ist_rechnet_volt_und_ma_um_und_laesst_cover_in_ruhe():
     assert eingaenge.klappe_ist("cover.klappe", profil) == 70
     assert eingaenge.klappe_ist("sensor.gibt_es_nicht", profil) is None
     assert eingaenge.klappe_ist(None, profil) is None
+
+
+
+def test_sensor_weg_mit_eigener_grenze():
+    eingaenge = baue(zustand(E.abgas, "100"))
+    ereignis(eingaenge, E.abgas, "unavailable", zeit=JETZT)
+    assert not eingaenge.pruefe_sensor_weg(JETZT + 29, 30)
+    assert eingaenge.pruefe_sensor_weg(JETZT + 30, 30)

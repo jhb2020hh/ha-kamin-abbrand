@@ -60,23 +60,37 @@ def sp_phase(jetzt: float, phase_seit: float) -> float:
 # zeigt sich, ob sie passen, erst danach lohnt ein Helfer.
 CAN_STUMM_S = 60       # kein Messframe, nach dem Flashen messbar
 CAN_FRISCH_S = 30
-FEUER_STUMM_S = 120    # bei Feuer ändert sich der Druck alle paar Sekunden
 FRISCH_S = 60
+FUEHLER_LUC = 1
+FUEHLER_EIGEN = 2
+
+
+def fuehler_eigen(p: Parameter) -> bool:
+    """Eigener Abgasfühler, der regelmäßig meldet (Wahl unter Parameter → Sicherheit)."""
+    return round(p.fuehler_art) == FUEHLER_EIGEN
 
 
 def signal_bewerten(e: Eingaben, p: Parameter, phase: str) -> str:
     """Stillstand des Werts von Funkstille trennen.
 
-    Mit CAN-Alter ist das eindeutig. Ohne zählt die jüngste Änderung von Abgas oder Druck.
+    Eigener Fühler: Er meldet regelmäßig, sein eigenes Alter entscheidet. Bei Feuer gilt
+    `fuehler_timeout_feuer`, sonst `fuehler_timeout`. Druck und CAN-Alter des LUC zählen nicht,
+    sonst hielte ein lebender LUC einen toten Abgasfühler für frisch.
+    LEDA LUC: Mit CAN-Alter ist das eindeutig. Ohne zählt die jüngste Änderung von Abgas oder Druck.
     Nur bei Feuer ist die kurze Grenze zulässig: In Ruhe stand der Druck schon 14 min still.
     """
+    feuer_phase = phase in (ANHEIZEN, ABBRAND, AUSBRAND)
+    if fuehler_eigen(p):
+        if e.t_alter_s > (p.fuehler_timeout_feuer if feuer_phase else p.fuehler_timeout):
+            return SIGNAL_STUMM
+        return SIGNAL_FRISCH if e.t_alter_s < FRISCH_S else SIGNAL_STILL
     if e.can_alter_s is not None:
         if e.can_alter_s > CAN_STUMM_S:
             return SIGNAL_STUMM
         return SIGNAL_FRISCH if e.can_alter_s <= CAN_FRISCH_S else SIGNAL_STILL
     alter = e.t_alter_s if e.dp_alter_s is None else min(e.t_alter_s, e.dp_alter_s)
-    feuer = phase in (ANHEIZEN, ABBRAND, AUSBRAND) and e.dp_alter_s is not None
-    if alter > (FEUER_STUMM_S if feuer else p.fuehler_timeout):
+    feuer = feuer_phase and e.dp_alter_s is not None
+    if alter > (p.fuehler_timeout_feuer if feuer else p.fuehler_timeout):
         return SIGNAL_STUMM
     return SIGNAL_FRISCH if alter < FRISCH_S else SIGNAL_STILL
 

@@ -679,22 +679,23 @@ async function setzen(name, wert) {
     await api("api/parameter", { name, wert, bestaetigt: true });
   }
 }
-function auswahlFeld(f, neu) {
+function wahlFeld(f, neu) {
   const liste = h("select", { "aria-label": f.titel, onchange: async (e) => { try { await setzen(f.name, Number(e.target.value)); toast(`${f.titel} gespeichert`); neu(); } catch (x) { melden(x); neu(); } } },
     f.auswahl.map(([wert, text]) => h("option", { value: wert, selected: Number(f.wert) === wert }, text)));
-  return h("div", { klasse: "feld" },
+  return h("div", { klasse: "feld auswahl" },
     h("div", {}, h("b", {}, f.titel), h("div", { klasse: "leise" }, f.hilfe)),
     h("div", { klasse: "eingabe" }, liste),
     h("div", { klasse: "unten" }, h("span", { klasse: "chip" + (f.eigen ? " eigen" : "") }, f.quelle)));
 }
 function feldZeile(f, neu) {
-  if (f.auswahl) return auswahlFeld(f, neu);
+  if (f.auswahl) return wahlFeld(f, neu);
   const eingabe = h("input", { type: "number", min: f.minimum, max: f.maximum, step: f.schritt, value: f.wert, "aria-label": f.titel, onchange: async (e) => { try { await setzen(f.name, e.target.value === "" ? null : Number(e.target.value)); toast(`${f.titel} gespeichert`); neu(); } catch (x) { melden(x); neu(); } } });
   return h("div", { klasse: "feld" },
     h("div", {}, h("b", {}, f.titel), h("div", { klasse: "leise" }, f.hilfe)),
     h("div", { klasse: "eingabe" }, eingabe, h("span", { klasse: "leise" }, f.einheit)),
     h("div", { klasse: "unten" }, h("span", { klasse: "chip" + (f.eigen ? " eigen" : "") }, f.quelle),
-      f.eigen && f.live !== null && h("span", { klasse: "leise" }, `Automation: ${zahl(f.live, 2)} ${f.einheit}`),
+      f.eigen && f.live !== null && h("span", { klasse: "leise" }, `Automation: ${zahl(f.live, Number.isInteger(f.live) ? 0 : 2)} ${f.einheit}`),
+      f.eigen && f.vorgabe !== null && f.vorgabe !== undefined && h("span", { klasse: "leise" }, `Vorgabe: ${zahl(f.vorgabe, Number.isInteger(f.vorgabe) ? 0 : 2)} ${f.einheit}`),
       f.eigen && h("button", { klasse: "textknopf", onclick: async () => { await setzen(f.name, null); toast("Zurückgesetzt"); neu(); } }, "Zurücksetzen")),
     f.rueckfrage_bestaetigt && h("p", { klasse: "warnung" }, `Unter ${zahl(f.rueckfrage_unter, 0)} ${f.einheit} am ${uhr(f.rueckfrage_bestaetigt.zeit)} bestätigt.`));
 }
@@ -727,7 +728,7 @@ function vorschlagZeigen(v) {
 function strategie2Karte(d) {
   const proz = Math.round(d.daempfung * 100);
   return h("div", { klasse: "karte" }, h("h2", {}, "Regelstrategie 2.0"),
-    h("p", { klasse: "leise" }, "PI-Regler ohne Vorhalt. Der Schwingungswächter beobachtet im Abbrand die Umkehrpunkte der Abgastemperatur. Pendelt sie regelmäßig (mindestens 8 K Hub, 1,3–10 min Periode), nimmt er die Verstärkung auf 70 % zurück und verlängert die Nachstellzeit, bis höchstens 30 %. Nach 15 min ohne Schwingung gibt er schrittweise wieder frei. Umstellen unter Einstellungen → Regelung."),
+    h("p", { klasse: "leise" }, "PI-Regler ohne Vorhalt. Der Schwingungswächter beobachtet im Abbrand die Umkehrpunkte der Abgastemperatur. Pendelt sie regelmäßig (mindestens 8 K Hub, 1,3–10 min Periode), nimmt er die Verstärkung auf 70 % zurück und verlängert die Nachstellzeit, bis höchstens 30 %. Nach 15 min ohne Schwingung gibt er schrittweise wieder frei."),
     h("div", { klasse: "vorschlag" },
       h("div", {}, h("div", { klasse: "etikett" }, "Dämpfung"), h("b", {}, `${proz} %`)),
       h("div", {}, h("div", { klasse: "etikett" }, "Wirksam Kp"), h("b", {}, `${zahl(d.regler2[0].wert * d.daempfung, 2)} %/K`)),
@@ -741,7 +742,9 @@ async function reglerZeichnen() {
   const ergebnis = h("div", { stil: "margin-top:12px" }, vorschlagZeigen(d.vorschlag));
   const knopf = h("button", { klasse: "neben", onclick: async () => { knopf.disabled = true; knopf.textContent = "Wird berechnet …"; try { ergebnis.replaceChildren(vorschlagZeigen(await api("api/autotune/verlauf", {}))); } catch (f) { melden(f); } knopf.disabled = false; knopf.textContent = "Aus dem Verlauf berechnen"; } }, "Aus dem Verlauf berechnen");
   zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Regler"), h("p", { klasse: "leise" }, imBetrieb() ? "Diese Werte wirken im Betrieb direkt auf die Klappe." : "Im Lauschen wirken diese Werte nur auf die gerechnete Klappe. Wie der Ofen wirklich reagiert, zeigt sich erst im Betrieb.")),
-    d.strategie === 2 ? strategie2Karte(d) : h("div", { klasse: "karte" }, h("p", { klasse: "leise" }, "Regelstrategie: Klassisch (PI mit Vorhalt). Umstellen unter Einstellungen → Regelung."), d.regler.map(schieber)),
+    h("div", { klasse: "karte" }, wahlFeld(d.strategie_feld, reglerZeichnen),
+      h("p", { klasse: "leise" }, "Was die Werte bewirken und was die Begriffe heißen, steht in der Dokumentation der App (Einstellungen → Apps → Kamin Abbrand → Dokumentation), Abschnitt „Regelung und Parameter erklärt“.")),
+    d.strategie === 2 ? strategie2Karte(d) : h("div", { klasse: "karte" }, h("p", { klasse: "leise" }, "Regelstrategie: Klassisch (PI mit Vorhalt)."), d.regler.map(schieber)),
     d.strategie !== 2 && h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune aus dem Verlauf"), h("p", { klasse: "leise" }, "Prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage) auf Schwingungen. Schwingt die Abgastemperatur, senkt der Vorschlag die wirksame Verstärkung und schaltet den D-Anteil ab. Ist der Regelkreis ruhig, bleibt alles, wie es ist. Den Vorschlag bestätigst du."), h("p", { stil: "margin-top:10px" }, knopf), ergebnis),
     d.strategie !== 2 && h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune mit Testlauf"), h("p", { klasse: "leise" }, "Aktive Streckenidentifikation nach dem Relaisverfahren: Die Zuluftklappe wird im Abbrand gezielt um ihre Arbeitsstellung verstellt. Aus der Reaktion der Abgastemperatur ermittelt die App Verstärkung und Totzeit der Regelstrecke und leitet daraus Reglerparameter ab."), h("p", { stil: "margin-top:10px" }, h("button", { klasse: "neben", disabled: true }, "Testlauf starten")), h("p", { klasse: "warnung" }, d.autotune_aktiv_gesperrt)));
 }

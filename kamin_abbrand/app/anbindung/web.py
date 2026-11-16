@@ -28,11 +28,11 @@ from anbindung.ansicht import (AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_
                                QUITTIEREN_LAUSCHEN_TEXT)
 from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, LEISTUNG_VORGABE, PARAMETER_THEMEN,
-                                     REGLER2_FELDER, REGLER_FELDER, ROLLEN, EinstellungsFehler, RueckfrageNoetig,
+                                     REGLER2_FELDER, REGLER_FELDER, ROLLEN, STRATEGIE_FELD, EinstellungsFehler, RueckfrageNoetig,
                                      rueckfrage_text)
 from anbindung.ha_client import VerbindungWeg
 from kern import autotune
-from kern.typen import Parameter
+from kern.typen import NUR_APP_FELDER, Parameter
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.5.0"     # Wie version in config.yaml, ein Test prüft das.
+VERSION = "0.5.2"     # Wie version in config.yaml, ein Test prüft das.
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -348,12 +348,14 @@ class Webserver:
                 "quelle": "Eigener Wert der App" if eigen is not None else "Vorgabe",
                 "eigen": eigen is not None, "live": None}
         eigen = app.speicher.parameter_neu.get(name)
+        nur_app = name in NUR_APP_FELDER     # kein Helfer, kein Wert in der Automation
         helfer = f"input_number.{app.eingaenge.praefix}_{name}"
-        hat_helfer = app.eingaenge.eintrag(helfer) is not None
+        hat_helfer = not nur_app and app.eingaenge.eintrag(helfer) is not None
         quelle = "Eigener Wert der App" if eigen is not None else ("Live-Helfer" if hat_helfer else "Vorgabe")
         wert = eigen if eigen is not None else getattr(app.eingaenge.parameter, name)
         return dataclasses.asdict(feld) | {"wert": wert, "quelle": quelle, "eigen": eigen is not None,
-                                            "live": getattr(app.eingaenge.parameter, name),
+                                            "vorgabe": getattr(Parameter(), name) if nur_app else None,
+                                            "live": None if nur_app else getattr(app.eingaenge.parameter, name),
                                             "rueckfrage_bestaetigt": app.speicher.rueckfrage(name) if eigen is not None else None}
 
     async def _parameter(self, _: web.Request) -> web.Response:
@@ -365,6 +367,7 @@ class Webserver:
             "regler": [self._feld_zeigen(f) for f in REGLER_FELDER],
             "regler2": [self._feld_zeigen(f) for f in REGLER2_FELDER],
             "strategie": round(self.app.parameter_neu.regelstrategie),
+            "strategie_feld": self._feld_zeigen(STRATEGIE_FELD),
             "daempfung": self.app.speicher.daempfung,
             "gedaempft": self.app.speicher.gedaempft,
             "vorschlag": _vorschlag_zeigen(self.app.autotune_vorschlag),

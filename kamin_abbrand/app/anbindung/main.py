@@ -1489,8 +1489,9 @@ class App:
     async def _sensor_wache(self) -> None:
         while True:
             await asyncio.sleep(self._wache_intervall_s)
-            if self.client.verbunden and self.eingaenge.pruefe_sensor_weg(self._uhr()):
-                log.warning("Abgas seit 60 s ohne Wert")
+            nach_s = self.parameter_neu.fuehler_ausfall
+            if self.client.verbunden and self.eingaenge.pruefe_sensor_weg(self._uhr(), nach_s):
+                log.warning("Abgas seit %.0f s ohne Wert", nach_s)
                 self._warteschlange.put_nowait((SENSOR_WEG, BEIDE))
 
     async def laufen(self, stopp: asyncio.Event) -> None:

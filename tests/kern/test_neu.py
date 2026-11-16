@@ -247,3 +247,49 @@ def test_quittieren_ohne_fehler_aendert_nichts():
     s = steuerung(phase=ABBRAND, seit=3600)
     r = s.schritt(eingabe(t=200.0, ausloeser=QUITTIEREN))
     assert r.regel != "Fehler quittiert → passende Phase"
+
+
+# ---------- Eigener Abgasfühler (meldet regelmäßig) ----------
+
+def _eigen(**felder):
+    return Parameter(fuehler_art=2, fuehler_timeout_feuer=30, fuehler_timeout=600, **felder)
+
+
+def test_eigener_fuehler_druck_ueberbrueckt_nicht():
+    """Der LUC lebt (Druck frisch), der eigene Fühler schweigt: Bei Feuer zählt nur sein Alter."""
+    e = eingabe(t_alter_s=31, dp_alter_s=2, can_alter_s=3)
+    assert signal_bewerten(e, _eigen(), ABBRAND) == SIGNAL_STUMM
+    assert signal_bewerten(eingabe(t_alter_s=30, dp_alter_s=2), _eigen(), ABBRAND) == SIGNAL_FRISCH
+
+
+def test_eigener_fuehler_ohne_feuer_gilt_der_lange_timeout():
+    assert signal_bewerten(eingabe(t_alter_s=240, dp_alter_s=None), _eigen(), STANDBY) == SIGNAL_STILL
+    assert signal_bewerten(eingabe(t_alter_s=601, dp_alter_s=None), _eigen(), GLUT) == SIGNAL_STUMM
+
+
+def test_luc_feuergrenze_einstellbar():
+    p = Parameter(fuehler_timeout_feuer=60)
+    assert signal_bewerten(eingabe(t_alter_s=61, dp_alter_s=61), p, ABBRAND) == SIGNAL_STUMM
+
+
+def test_eigener_fuehler_stumm_im_abbrand_oeffnet_mit_eigener_meldung():
+    z = Zustand(phase=ABBRAND, phase_seit=T0 - 3600, letzter_lauf=T0 - 5, t_maximum=220, t_phasenstart=100,
+                i_anteil=40, klappe_soll=40)
+    s = Steuerung(_eigen(), z, regelstand=NEU, takt_s=5)
+    e = s.schritt(eingabe(t_alter_s=35, dp_alter_s=1))
+    assert s.zustand.phase == STOERUNG and e.klappe == 100
+    assert AKTION_SNIFFER_RESTART in e.aktionen
+    assert any("Abgasfühler seit 35 s ohne Meldung" in m.text for m in e.meldungen)
+    e = s.schritt(eingabe(t_alter_s=2, jetzt=T0 + 5))
+    assert s.zustand.phase == ANHEIZEN
+    assert any("Abgaswerte wieder da" in m.text for m in e.meldungen)
+
+
+def test_eigener_fuehler_ausfall_meldet_eingestellte_zeit():
+    from kern.typen import SENSOR_WEG
+    z = Zustand(phase=ABBRAND, phase_seit=T0 - 3600, letzter_lauf=T0 - 5, t_maximum=220, t_phasenstart=100,
+                i_anteil=40, klappe_soll=40)
+    s = Steuerung(_eigen(fuehler_ausfall=30), z, regelstand=NEU, takt_s=5)
+    e = s.schritt(eingabe(t=None, ausloeser=SENSOR_WEG))
+    assert s.zustand.phase == STOERUNG
+    assert any("Kein Messwert vom Abgasfühler seit 30 s" in m.text for m in e.meldungen)

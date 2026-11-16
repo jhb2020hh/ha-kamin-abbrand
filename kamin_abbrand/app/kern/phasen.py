@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from kern.regler import i_start
-from kern.signale import T_DECKEL, Werte, runde, t_oder_null
+from kern.signale import fuehler_eigen, T_DECKEL, Werte, runde, t_oder_null
 from kern.typen import (ABBRAND, ABKUEHLEN, AKTION_SNIFFER_RESTART, AKTION_WARTUNG_AUS,
                         ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT, QUITTIEREN, SENSOR_WEG, SIGNAL_FRISCH,
                         SIGNAL_STUMM, STANDBY, STOERUNG, TUER_OFFEN, WARTUNG, WARTUNG_AN, Eingaben, Meldung,
@@ -355,11 +355,34 @@ def _stumm_erkannt(lauf: Lauf) -> bool:
             and (w.phase in (ANHEIZEN, ABBRAND, AUSBRAND) or w.twt_anstieg >= w.feuer_anstieg))
 
 
+def _quelle(lauf: Lauf) -> str:
+    return "Abgasfühler" if fuehler_eigen(lauf.p) else "LEDA LUC"
+
+
 def _stoerung_pruefen_neu(lauf: Lauf) -> None:
     w = lauf.w
     if lauf.signal == SIGNAL_FRISCH:
         phase_setzen(lauf, ANHEIZEN if w.t > w.kalt else STANDBY)
-        lauf.push(TITEL, f"LUC-Messwerte wieder da ({runde(w.t)} °C).")
+        lauf.push(TITEL, f"{'Abgaswerte' if fuehler_eigen(lauf.p) else 'LUC-Messwerte'} wieder da ({runde(w.t)} °C).")
+
+
+def _stoerung_fuehler_neu(lauf: Lauf) -> None:
+    phase_setzen(lauf, STOERUNG)
+    lauf.push(TITEL_STOERUNG, f"Kein Messwert vom {_quelle(lauf)} seit {runde(lauf.p.fuehler_ausfall)} s. "
+                              "Zuluftklappe wird geöffnet.")
+
+
+def _eingefroren_neu(lauf: Lauf) -> None:
+    if not fuehler_eigen(lauf.p):
+        _eingefroren(lauf)
+        return
+    w = lauf.w
+    phase_setzen(lauf, STOERUNG)
+    lauf.push(TITEL_STOERUNG,
+              f"Abgasfühler seit {runde(w.t_alter)} s ohne Meldung ({runde(w.t)} °C), "
+              f"T.WT {runde(w.twt, 1)} °C ({runde(w.twt_anstieg, 1)} K in 10 min). "
+              "Zuluftklappe wird geöffnet, der Fühler wird neu gestartet.")
+    lauf.aktionen.append(AKTION_SNIFFER_RESTART)
 
 
 FEHLER_PHASEN = (STOERUNG, ANHEIZFEHLER)
@@ -389,7 +412,9 @@ def _regeln_neu() -> tuple[Regel, ...]:
         "Störung: erst bei frischem Messwert beenden, sonst halten":
             lambda r: Regel(r.alias, r.bedingung, _stoerung_pruefen_neu),
         "Messwert eingefroren → Störung":
-            lambda r: Regel(r.alias, _stumm_erkannt, r.aktion),
+            lambda r: Regel(r.alias, _stumm_erkannt, _eingefroren_neu),
+        "Fühler/LUC ausgefallen → Störung":
+            lambda r: Regel(r.alias, r.bedingung, _stoerung_fuehler_neu),
         "Ausbrand → Anheizen (Nachlegen erkannt)":
             lambda r: Regel(r.alias, lambda l: r.bedingung(l) and _nachlegen_belegt(l), r.aktion),
         "Glut → Anheizen (Nachlegen erkannt)":

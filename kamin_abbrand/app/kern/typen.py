@@ -95,6 +95,11 @@ class Parameter:
     regler_i_start_heiss: float = 40
     puffer_voll: float = 60
     fuehler_timeout: float = 600        # s
+    # Abgasfühler (nur Regelstand neu): 1 = LEDA LUC, meldet nur Änderungen, Druck aus demselben Gerät;
+    # 2 = eigener Fühler, meldet regelmäßig. Dann zählt nur das Alter des Abgaswerts.
+    fuehler_art: float = 1
+    fuehler_timeout_feuer: float = 120  # s, stumm bei Feuer
+    fuehler_ausfall: float = 60         # s unavailable/unknown bis zur Störung
     feuer_twt_anstieg: float = 3        # K in 10 min
     # Brennstoff Briketts (nur Regelstand neu, nur in der App, ohne Live-Helfer). Herleitung in Issue #3.
     startfenster_brikett: float = 20            # min
@@ -175,6 +180,7 @@ NUR_APP_FELDER = frozenset({
     "startfenster_brikett", "anheizen_timeout_brikett", "klappe_min_abbrand_brikett", "klappe_glut_brikett",
     "glut_max_dauer_brikett", "abkuehlen_max_dauer_brikett", "brikett_nachlauf",
     "regelstrategie", "regler2_verstaerkung", "regler2_nachstellzeit",
+    "fuehler_art", "fuehler_timeout_feuer", "fuehler_ausfall",
 })
 
 
