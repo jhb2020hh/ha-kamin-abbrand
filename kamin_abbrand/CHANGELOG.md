@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Neu: Regelstrategie 2.0, wählbar unter Einstellungen → Regelung (Vorgabe bleibt „Klassisch“). Sie soll das Pendeln der Abgastemperatur im Abbrand beenden (am 16.11. ±10–12 K mit 3 min Periode, Klappe 30–51 %).
+  - Ursache laut Verlauf 14.–16.11. (20 Abbrände): Die Klappe wirkt erst nach 35–80 s auf das Abgas, und je nach Holz und Abbrandstand mit 0,7 bis 2,7 K je % Klappe. Ein fest eingestellter Regler ist für die steile Strecke zu scharf. Der Vorhalt (Kd) auf dem 2-min-Anstieg hinkt etwa 1 min nach und verstärkt die Schwingung zusätzlich.
+  - 2.0 regelt als PI ohne Vorhalt mit eigenen Grundwerten (Kp 0,3 %/K, Tn 2 min, im Reiter Regler einstellbar).
+  - Ein Schwingungswächter beobachtet im Abbrand die Umkehrpunkte der Abgastemperatur (mindestens 8 K Hub, Halbwellen 40–300 s). Drei regelmäßige Halbwellen gelten als Schwingung: Die Verstärkung sinkt auf 70 %, die Nachstellzeit wird länger, bis höchstens 30 % Dämpfung. Nach 15 min Abbrand ohne Schwingung steigt sie um 10 %.
+  - Die Dämpfung lernt die App nur im Betrieb. Sie bleibt über Abbrände und Neustarts erhalten (`einstellungen.json`, `regelung`), steht im Änderungsprotokoll und im Reiter Regler und lässt sich dort auf 100 % zurücksetzen.
+  - Geprüft im Regelkreismodell mit dem echten Kern: Auf steilen Strecken (2,5–3,5 K/%, 60–90 s Totzeit) schwingt die klassische Einstellung vom 16.11. (0,45 / 6 min / Kd 1) mit 17–55 K. 2.0 bleibt dort bei 3–4 K, das ist nur noch die Störung des Modells. In einer Vergleichsbank mit 36 Strecken und Flackern des Feuers verstärkt 2.0 die Eigenschwankung im Median nicht mehr (Faktor 1,1 statt 4,8), und die Klappe bewegt sich etwa zwölfmal weniger. Auf den Verläufen vom 14.–16.11. erkennt der Wächter jede Schwingphase, auch die vom 16.11. 18:45. Bei ruhigem Feuer dämpft er nicht.
+- Klassisch arbeitet unverändert mit Kp, Tn, Kd und Auto-Tune.
+
 ## 0.4.7
 
 - Geändert: „Klappe mindestens“ im Abbrand lässt sich bis 0 % einstellen, ebenso „Klappe mindestens beim Entgasen“ und bei Briketts „Klappe mindestens im Abbrand“. Bisher war bei 5 % Schluss. Unter 5 % fragt die App nach: Der Regler darf die Luft dann auch bei voller Flamme fast oder ganz schließen, das Feuer kann schwelen und viel CO bilden. Erst nach Bestätigung gilt der Wert.

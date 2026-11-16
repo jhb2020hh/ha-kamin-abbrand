@@ -679,7 +679,16 @@ async function setzen(name, wert) {
     await api("api/parameter", { name, wert, bestaetigt: true });
   }
 }
+function auswahlFeld(f, neu) {
+  const liste = h("select", { "aria-label": f.titel, onchange: async (e) => { try { await setzen(f.name, Number(e.target.value)); toast(`${f.titel} gespeichert`); neu(); } catch (x) { melden(x); neu(); } } },
+    f.auswahl.map(([wert, text]) => h("option", { value: wert, selected: Number(f.wert) === wert }, text)));
+  return h("div", { klasse: "feld" },
+    h("div", {}, h("b", {}, f.titel), h("div", { klasse: "leise" }, f.hilfe)),
+    h("div", { klasse: "eingabe" }, liste),
+    h("div", { klasse: "unten" }, h("span", { klasse: "chip" + (f.eigen ? " eigen" : "") }, f.quelle)));
+}
 function feldZeile(f, neu) {
+  if (f.auswahl) return auswahlFeld(f, neu);
   const eingabe = h("input", { type: "number", min: f.minimum, max: f.maximum, step: f.schritt, value: f.wert, "aria-label": f.titel, onchange: async (e) => { try { await setzen(f.name, e.target.value === "" ? null : Number(e.target.value)); toast(`${f.titel} gespeichert`); neu(); } catch (x) { melden(x); neu(); } } });
   return h("div", { klasse: "feld" },
     h("div", {}, h("b", {}, f.titel), h("div", { klasse: "leise" }, f.hilfe)),
@@ -715,14 +724,26 @@ function vorschlagZeigen(v) {
     v.wirksam !== null && w("Wirksam bisher", `${zahl(v.wirksam, 2)} %/K`)),
     h("button", { klasse: "haupt", onclick: async () => { try { await api("api/autotune/uebernehmen", {}); toast("Vorschlag für die App übernommen"); reglerZeichnen(); } catch (f) { melden(f); } } }, "Vorschlag übernehmen"));
 }
+function strategie2Karte(d) {
+  const proz = Math.round(d.daempfung * 100);
+  return h("div", { klasse: "karte" }, h("h2", {}, "Regelstrategie 2.0"),
+    h("p", { klasse: "leise" }, "PI-Regler ohne Vorhalt. Der Schwingungswächter beobachtet im Abbrand die Umkehrpunkte der Abgastemperatur. Pendelt sie regelmäßig (mindestens 8 K Hub, 1,3–10 min Periode), nimmt er die Verstärkung auf 70 % zurück und verlängert die Nachstellzeit, bis höchstens 30 %. Nach 15 min ohne Schwingung gibt er schrittweise wieder frei. Umstellen unter Einstellungen → Regelung."),
+    h("div", { klasse: "vorschlag" },
+      h("div", {}, h("div", { klasse: "etikett" }, "Dämpfung"), h("b", {}, `${proz} %`)),
+      h("div", {}, h("div", { klasse: "etikett" }, "Wirksam Kp"), h("b", {}, `${zahl(d.regler2[0].wert * d.daempfung, 2)} %/K`)),
+      h("div", {}, h("div", { klasse: "etikett" }, "Wirksam Tn"), h("b", {}, `${zahl(d.regler2[1].wert / Math.sqrt(d.daempfung), 1)} min`)),
+      d.gedaempft && h("div", {}, h("div", { klasse: "etikett" }, "Zuletzt gedämpft"), h("b", {}, uhr(d.gedaempft)))),
+    d.regler2.map(schieber),
+    proz < 100 && h("button", { klasse: "textknopf", onclick: async () => { try { await api("api/daempfung/zuruecksetzen", {}); toast("Dämpfung auf 100 % zurückgesetzt"); reglerZeichnen(); } catch (f) { melden(f); } } }, "Dämpfung auf 100 % zurücksetzen"));
+}
 async function reglerZeichnen() {
   const d = await api("api/parameter");
   const ergebnis = h("div", { stil: "margin-top:12px" }, vorschlagZeigen(d.vorschlag));
   const knopf = h("button", { klasse: "neben", onclick: async () => { knopf.disabled = true; knopf.textContent = "Wird berechnet …"; try { ergebnis.replaceChildren(vorschlagZeigen(await api("api/autotune/verlauf", {}))); } catch (f) { melden(f); } knopf.disabled = false; knopf.textContent = "Aus dem Verlauf berechnen"; } }, "Aus dem Verlauf berechnen");
   zeige(h("div", { klasse: "kopf" }, h("h1", {}, "Regler"), h("p", { klasse: "leise" }, imBetrieb() ? "Diese Werte wirken im Betrieb direkt auf die Klappe." : "Im Lauschen wirken diese Werte nur auf die gerechnete Klappe. Wie der Ofen wirklich reagiert, zeigt sich erst im Betrieb.")),
-    h("div", { klasse: "karte" }, d.regler.map(schieber)),
-    h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune aus dem Verlauf"), h("p", { klasse: "leise" }, "Prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage) auf Schwingungen. Schwingt die Abgastemperatur, senkt der Vorschlag die wirksame Verstärkung und schaltet den D-Anteil ab. Ist der Regelkreis ruhig, bleibt alles, wie es ist. Den Vorschlag bestätigst du."), h("p", { stil: "margin-top:10px" }, knopf), ergebnis),
-    h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune mit Testlauf"), h("p", { klasse: "leise" }, "Aktive Streckenidentifikation nach dem Relaisverfahren: Die Zuluftklappe wird im Abbrand gezielt um ihre Arbeitsstellung verstellt. Aus der Reaktion der Abgastemperatur ermittelt die App Verstärkung und Totzeit der Regelstrecke und leitet daraus Reglerparameter ab."), h("p", { stil: "margin-top:10px" }, h("button", { klasse: "neben", disabled: true }, "Testlauf starten")), h("p", { klasse: "warnung" }, d.autotune_aktiv_gesperrt)));
+    d.strategie === 2 ? strategie2Karte(d) : h("div", { klasse: "karte" }, h("p", { klasse: "leise" }, "Regelstrategie: Klassisch (PI mit Vorhalt). Umstellen unter Einstellungen → Regelung."), d.regler.map(schieber)),
+    d.strategie !== 2 && h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune aus dem Verlauf"), h("p", { klasse: "leise" }, "Prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage) auf Schwingungen. Schwingt die Abgastemperatur, senkt der Vorschlag die wirksame Verstärkung und schaltet den D-Anteil ab. Ist der Regelkreis ruhig, bleibt alles, wie es ist. Den Vorschlag bestätigst du."), h("p", { stil: "margin-top:10px" }, knopf), ergebnis),
+    d.strategie !== 2 && h("div", { klasse: "karte" }, h("h2", {}, "Auto-Tune mit Testlauf"), h("p", { klasse: "leise" }, "Aktive Streckenidentifikation nach dem Relaisverfahren: Die Zuluftklappe wird im Abbrand gezielt um ihre Arbeitsstellung verstellt. Aus der Reaktion der Abgastemperatur ermittelt die App Verstärkung und Totzeit der Regelstrecke und leitet daraus Reglerparameter ab."), h("p", { stil: "margin-top:10px" }, h("button", { klasse: "neben", disabled: true }, "Testlauf starten")), h("p", { klasse: "warnung" }, d.autotune_aktiv_gesperrt)));
 }
 
 // ---- Benachrichtigungen ------------------------------------------------

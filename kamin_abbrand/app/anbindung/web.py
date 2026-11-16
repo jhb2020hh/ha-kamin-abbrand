@@ -28,7 +28,7 @@ from anbindung.ansicht import (AUTOTUNE_GESPERRT, BEOBACHTUNG_TEXT, BETRIEB_NUR_
                                QUITTIEREN_LAUSCHEN_TEXT)
 from anbindung.eingaenge import als_zahl
 from anbindung.einstellungen import (BETRIEB, EIGENE_FELDER, FELDER, LAUSCHEN, LEISTUNG_VORGABE, PARAMETER_THEMEN,
-                                     REGLER_FELDER, ROLLEN, EinstellungsFehler, RueckfrageNoetig,
+                                     REGLER2_FELDER, REGLER_FELDER, ROLLEN, EinstellungsFehler, RueckfrageNoetig,
                                      rueckfrage_text)
 from anbindung.ha_client import VerbindungWeg
 from kern import autotune
@@ -43,7 +43,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.4.7"     # Wie version in config.yaml, ein Test prüft das.
+VERSION = "0.5.0"     # Wie version in config.yaml, ein Test prüft das.
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -88,6 +88,7 @@ class Webserver:
         r.add_post("/api/autotune/verlauf", self._autotune_verlauf)
         r.add_post("/api/autotune/uebernehmen", self._autotune_uebernehmen)
         r.add_post("/api/autotune/aktiv", self._autotune_aktiv)
+        r.add_post("/api/daempfung/zuruecksetzen", self._daempfung_zuruecksetzen)
         r.add_get("/api/service", self._service)
         r.add_get("/api/benachrichtigungen", self._benachrichtigungen)
         r.add_post("/api/benachrichtigungen", self._benachrichtigungen_speichern)
@@ -362,6 +363,10 @@ class Webserver:
                        for titel, felder in PARAMETER_THEMEN
                        if (zeigen := [self._feld_zeigen(f) for f in felder if feld_passt(f.name, profil)])],
             "regler": [self._feld_zeigen(f) for f in REGLER_FELDER],
+            "regler2": [self._feld_zeigen(f) for f in REGLER2_FELDER],
+            "strategie": round(self.app.parameter_neu.regelstrategie),
+            "daempfung": self.app.speicher.daempfung,
+            "gedaempft": self.app.speicher.gedaempft,
             "vorschlag": _vorschlag_zeigen(self.app.autotune_vorschlag),
             "autotune_aktiv_gesperrt": AUTOTUNE_GESPERRT,
         })
@@ -437,6 +442,10 @@ class Webserver:
         self._setzen("regler_verstaerkung", vorschlag.kp)
         self._setzen("regler_nachstellzeit", vorschlag.tn)
         self._setzen("regler_vorhaltung", vorschlag.kd)
+        return web.json_response({"ok": True})
+
+    async def _daempfung_zuruecksetzen(self, _: web.Request) -> web.Response:
+        self.app.daempfung_zuruecksetzen()
         return web.json_response({"ok": True})
 
     async def _autotune_aktiv(self, _: web.Request) -> web.Response:

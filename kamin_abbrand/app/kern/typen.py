@@ -104,6 +104,11 @@ class Parameter:
     glut_max_dauer_brikett: float = 420         # min
     abkuehlen_max_dauer_brikett: float = 600    # min
     brikett_nachlauf: float = 600               # min nach dem letzten Brikett-Feuer
+    # Regelstrategie (nur Regelstand neu, nur in der App): 1 = klassisch (PI + D, Kp/Tn/Kd oben),
+    # 2 = Regelstrategie 2.0 (PI ohne D mit Schwingungswächter, eigene Kp/Tn). Herleitung in kern/schwingung.py.
+    regelstrategie: float = 1
+    regler2_verstaerkung: float = 0.3           # %/K
+    regler2_nachstellzeit: float = 2            # min
 
     @classmethod
     def feldnamen(cls) -> tuple[str, ...]:
@@ -153,11 +158,23 @@ class Zustand:
     klappe_genau: Optional[float] = None  # Soll ungerundet, damit die Schließrate je 5 s stimmt
     brennstoff: Optional[str] = None     # Wahl im letzten Lauf, um das Umstellen zu erkennen
     brikett_nachlauf_bis: Optional[float] = None  # bis dahin glüht womöglich noch Kohle (CO)
+    # Regelstrategie 2.0: Dämpfung des Reglers (1 = voll) und der Schwingungswächter (kern/schwingung.py)
+    daempfung: float = 1.0
+    sw_extrem: Optional[float] = None       # laufendes Maximum (steigend) oder Minimum (fallend)
+    sw_extrem_zeit: Optional[float] = None
+    sw_gegen: Optional[float] = None        # vor der ersten Umkehr: das andere Extrem
+    sw_gegen_zeit: Optional[float] = None
+    sw_richtung: int = 0
+    sw_beginn: Optional[float] = None       # Zeitpunkt des letzten Umkehrpunkts
+    sw_wellen: tuple[float, ...] = ()
+    sw_ruhig_seit: Optional[float] = None
+    sw_gedaempft: Optional[float] = None    # Zeitpunkt der letzten Dämpfung
 
 
 NUR_APP_FELDER = frozenset({
     "startfenster_brikett", "anheizen_timeout_brikett", "klappe_min_abbrand_brikett", "klappe_glut_brikett",
     "glut_max_dauer_brikett", "abkuehlen_max_dauer_brikett", "brikett_nachlauf",
+    "regelstrategie", "regler2_verstaerkung", "regler2_nachstellzeit",
 })
 
 

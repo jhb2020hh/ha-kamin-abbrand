@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from kern import klappe, phasen, regler
+from kern import klappe, phasen, regler, schwingung
 from kern.phasen import Lauf, Regel
 from kern.signale import nachlauf_aktiv, signal_bewerten, sp_phase, t_gueltig, werte_ermitteln
 from kern.typen import (ABBRAND, AKTION_BRENNSTOFF_HOLZ, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, BRIKETTS, HOLZ, NEU,
-                        PARITAET, SIGNAL_FRISCH, STANDBY, TUER_OFFEN, Eingaben, Ergebnis, Meldung, Parameter,
+                        PARITAET, SIGNAL_FRISCH, STANDBY, TICK, TUER_OFFEN, Eingaben, Ergebnis, Meldung, Parameter,
                         Zustand)
 
 MAX_DT_S = 30   # längere Lücken (Neustart, Verbindung weg) zählen nicht als Regelzeit
@@ -93,6 +93,16 @@ class Steuerung:
             z.t_tief = e.t if z.t_tief is None else min(z.t_tief, e.t)
         return dt, signal_bewerten(e, self.parameter, z.phase)
 
+    @staticmethod
+    def _strategie_2(e: Eingaben, z: Zustand, p: Parameter, w):
+        """Regelstrategie 2.0: Schwingungswächter im Abbrand, Reglerwerte gedämpft und ohne D-Anteil."""
+        if z.phase == ABBRAND and not e.handbetrieb and w.t_ok:
+            if e.ausloeser == TICK:
+                schwingung.beobachten(z, w.t, e.jetzt)
+        elif z.phase != ABBRAND:
+            schwingung.zuruecksetzen(z)
+        return schwingung.werte_2(w, p, z)
+
     def schritt(self, e: Eingaben) -> Ergebnis:
         """Ändert self.zustand; Ergebnis.zustand ist eine Momentaufnahme davon."""
         z, profil = self.zustand, self._profil
@@ -107,6 +117,8 @@ class Steuerung:
         if not lauf.gestoppt:
             phasen.maximum_nachfuehren(lauf)
             phasen.wasserbegrenzung(lauf)
+            if profil.neu and schwingung.strategie_2(p):
+                w = self._strategie_2(e, z, p, w)
             if regler.integration_aktiv(e, w, z.phase):
                 z.i_anteil = regler.i_integrieren(
                     z.i_anteil, w, sp_phase(e.jetzt, z.phase_seit), dt, gerundet=not profil.neu)

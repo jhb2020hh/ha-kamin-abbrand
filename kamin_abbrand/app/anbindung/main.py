@@ -288,6 +288,8 @@ class App:
             # Je Instanz ein eigener Zustand. paritaet rechnet mit den Live-Helfern,
             # neu zusätzlich mit den eigenen Werten aus den Einstellungen.
             zustand = (start_neu if regelstand == NEU and start_neu else start)(self._uhr())
+            if regelstand == NEU and self.speicher is not None:
+                zustand.daempfung = self.speicher.daempfung     # gelernt, gilt über Neustarts
             parameter = self.eingaenge.parameter if regelstand == PARITAET else self.parameter_neu
             try:
                 self.steuerungen[regelstand] = self._steuerung_fabrik(
@@ -454,6 +456,7 @@ class App:
             self._fehler.pop(regelstand, None)
             if regelstand == NEU:
                 self._nachlauf_merken(steuerung.zustand)
+                self._daempfung_merken(steuerung.zustand, jetzt)
             if regelstand == NEU and self._betrieb and self.einmessen_handregelung:
                 ergebnis = self._einmessen_ergebnis(steuerung, ergebnis)
             live = self._wirklicher_zustand(jetzt)
@@ -542,6 +545,32 @@ class App:
         if ergebnis.uebergang or jetzt - self._zustand_gesichert >= ZUSTAND_SICHERN_S:
             self._zustand_gesichert = jetzt
             zustand_sichern(self._zustand_pfad, ergebnis.zustand, jetzt)
+
+    def _daempfung_merken(self, zustand: Any, jetzt: float) -> None:
+        """Regelstrategie 2.0: Die Dämpfung des Schwingungswächters gilt über Abbrände und Neustarts."""
+        if self.speicher is None:
+            return
+        alt = self.speicher.daempfung
+        if abs(zustand.daempfung - alt) < 1e-6:
+            return
+        if not self._betrieb:
+            # Im Lauschen stellt die Automation die Klappe: Deren Schwingung sagt nichts über diesen Regler.
+            zustand.daempfung = alt
+            return
+        gesenkt = zustand.daempfung < alt
+        self.speicher.daempfung_setzen(zustand.daempfung, jetzt if gesenkt else None)
+        self.verlauf.aenderung(jetzt, "daempfung", alt, zustand.daempfung)
+        if gesenkt:
+            log.info("Schwingung erkannt, Dämpfung %.2f → %.2f", alt, zustand.daempfung)
+
+    def daempfung_zuruecksetzen(self) -> None:
+        """Von Hand: Dämpfung wieder auf 100 %, im Speicher und im laufenden Zustand."""
+        neu = self.steuerungen.get(NEU)
+        if neu is not None:
+            neu.zustand.daempfung = 1.0
+        alt = self.speicher.daempfung
+        self.speicher.daempfung_setzen(1.0)
+        self.verlauf.aenderung(self._uhr(), "daempfung", alt, 1.0)
 
     def _betrieb_aufnehmen(self) -> None:
         self._betrieb = True

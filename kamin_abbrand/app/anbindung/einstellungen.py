@@ -127,11 +127,16 @@ class Feld:
     einheit: str
     # Werte unter dieser Grenze gelten erst nach ausdrücklicher Rückfrage, die protokolliert wird.
     rueckfrage_unter: Optional[float] = None
+    # Auswahlfeld: (Wert, Text) je Möglichkeit; die Oberfläche zeigt dann eine Liste statt einer Zahl.
+    auswahl: Optional[tuple[tuple[float, str], ...]] = None
 
 
 def _f(name: str, titel: str, hilfe: str, minimum: float, maximum: float, schritt: float, einheit: str,
-       rueckfrage_unter: Optional[float] = None) -> Feld:
-    return Feld(name, titel, hilfe, minimum, maximum, schritt, einheit, rueckfrage_unter)
+       rueckfrage_unter: Optional[float] = None, auswahl: Optional[tuple[tuple[float, str], ...]] = None) -> Feld:
+    return Feld(name, titel, hilfe, minimum, maximum, schritt, einheit, rueckfrage_unter, auswahl)
+
+
+STRATEGIE_AUSWAHL = ((1.0, "Klassisch (PI mit Vorhalt)"), (2.0, "Regelstrategie 2.0"))
 
 
 # Mindestklappe im Abbrand: 0 % ist erlaubt, unter 5 % aber nur nach Rückfrage.
@@ -158,6 +163,13 @@ _WASSER_VORGABE = {"wasser_ruecklauf_min": "ruecklauf_min", "wasser_vorlauf_warn
                    "wasser_vorlauf_alarm": "vorlauf_alarm", "wasser_pumpe_t_wt": "pumpe_t_wt"}
 
 PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
+    ("Regelung", (
+        _f("regelstrategie", "Regelstrategie",
+           "Klassisch: PI-Regler mit Vorhalt (Kp, Tn, Kd im Reiter Regler). Regelstrategie 2.0: PI ohne Vorhalt "
+           "mit Schwingungswächter. Er erkennt im Abbrand eine Schwingung der Abgastemperatur und dämpft den "
+           "Regler selbst, bis sie aufhört. Gilt ab dem nächsten Takt.",
+           1, 2, 1, "", auswahl=STRATEGIE_AUSWAHL),
+    )),
     ("Anheizen", (
         _f("t_abbrandstart", "Abbrand beginnt bei", "Ab dieser Abgastemperatur gilt das Feuer als gut angebrannt.", 80, 400, 5, "°C"),
         _f("gradient_start", "Anstieg für Feuererkennung", "So schnell muss die Temperatur steigen, damit die App ein Feuer erkennt.", 0.5, 30, 0.5, "K/min"),
@@ -236,7 +248,14 @@ REGLER_FELDER: tuple[Feld, ...] = (
     _f("regler_nachstellzeit", "Nachstellzeit Tn", "In welcher Zeit der Regler bleibende Abweichungen ausgleicht.", 1, 60, 0.5, "min"),
     _f("regler_vorhaltung", "Vorhalt Kd", "Wirkt auf den Anstieg über 2 min. Der hinkt etwa 1 min nach und macht den Regler bei Schwingungen um 3–4 min schärfer statt ruhiger. Empfohlen: 0 (aus).", 0, 20, 0.5, "%·min/K"),
 )
-FELDER = {f.name: f for _, felder in PARAMETER_THEMEN for f in felder} | {f.name: f for f in REGLER_FELDER}
+REGLER2_FELDER: tuple[Feld, ...] = (
+    _f("regler2_verstaerkung", "Verstärkung Kp", "Grundwert der Regelstrategie 2.0. Der Schwingungswächter nimmt ihn "
+       "bei Schwingung selbst zurück (Dämpfung).", 0.05, 2, 0.05, "%/K"),
+    _f("regler2_nachstellzeit", "Nachstellzeit Tn", "Grundwert der Regelstrategie 2.0. Bei Dämpfung wird sie länger.",
+       0.5, 30, 0.5, "min"),
+)
+FELDER = ({f.name: f for _, felder in PARAMETER_THEMEN for f in felder} | {f.name: f for f in REGLER_FELDER}
+          | {f.name: f for f in REGLER2_FELDER})
 
 
 class EinstellungsFehler(ValueError):
@@ -428,6 +447,24 @@ class Speicher:
     def brennstoff(self) -> str:
         return self.daten["brennstoff"]["wahl"]
 
+    @property
+    def daempfung(self) -> float:
+        """Gelernte Dämpfung der Regelstrategie 2.0 (1 = ungedämpft)."""
+        wert = als_zahl((self.daten.get("regelung") or {}).get("daempfung"))
+        return min(max(wert, 0.3), 1.0) if wert is not None else 1.0
+
+    def daempfung_setzen(self, wert: float, gedaempft: Optional[float] = None) -> None:
+        regelung = self.daten.get("regelung") if isinstance(self.daten.get("regelung"), dict) else {}
+        regelung["daempfung"] = round(float(wert), 3)
+        if gedaempft is not None:
+            regelung["gedaempft"] = gedaempft
+        self.daten["regelung"] = regelung
+        self.speichern()
+
+    @property
+    def gedaempft(self) -> Optional[float]:
+        return als_zahl((self.daten.get("regelung") or {}).get("gedaempft"))
+
     def brennstoff_setzen(self, wahl: Any) -> str:
         if wahl not in BRENNSTOFFE:
             raise EinstellungsFehler("Diesen Brennstoff gibt es nicht.")
@@ -572,6 +609,8 @@ class Speicher:
         if not feld.minimum <= zahl <= feld.maximum:
             raise EinstellungsFehler(
                 f"{feld.titel}: Erlaubt sind {feld.minimum:g} bis {feld.maximum:g} {feld.einheit}.")
+        if feld.auswahl is not None and zahl not in {w for w, _ in feld.auswahl}:
+            raise EinstellungsFehler(f"{feld.titel}: Bitte eine der angebotenen Möglichkeiten wählen.")
         if feld.rueckfrage_unter is not None and zahl < feld.rueckfrage_unter:
             if bestaetigt is not True:
                 raise RueckfrageNoetig(rueckfrage_text(feld, zahl))
