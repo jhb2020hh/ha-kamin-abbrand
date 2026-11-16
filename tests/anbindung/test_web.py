@@ -1035,3 +1035,19 @@ def test_app_js_ohne_doppelte_funktionsnamen():
     namen = re.findall(r"^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(", quelltext, re.M)
     doppelt = [n for n, k in collections.Counter(namen).items() if k > 1]
     assert namen and not doppelt
+
+
+def test_abgas_fehler_rolle_im_betrieb_kein_frischer_abgaswert():
+    from anbindung.betrieb import abgas_frisch
+
+    async def p(ober, _, app, ha, *__):
+        ha.setzen("binary_sensor.abgas_fehler", "off")
+        r = await ober.post("/api/rollen", json={"rollen": {"abgas": "sensor.a", "abgas_fehler": "binary_sensor.abgas_fehler"},
+                                                  "tuerkontakt_vorhanden": False})
+        assert r.status == 200
+        await warte_auf(lambda: app.eingaenge.wert("binary_sensor.abgas_fehler") == "off")
+        assert abgas_frisch(app, "sensor.a", time.time())
+        ha.setzen("binary_sensor.abgas_fehler", "on")
+        await warte_auf(lambda: app.eingaenge.wert("binary_sensor.abgas_fehler") == "on")
+        assert not abgas_frisch(app, "sensor.a", time.time())
+    mit_web(p)

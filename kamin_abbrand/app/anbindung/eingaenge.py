@@ -42,6 +42,7 @@ class Entitaeten:
     handbetrieb: Optional[str] = None
     tuerkontakt_vorhanden: Optional[str] = None
     can_alter: Optional[str] = None
+    abgas_fehler: Optional[str] = None
 
 
 @dataclass
@@ -105,7 +106,7 @@ class Eingaenge:
             eid for eid in (
                 ent.abgas, ent.druck, ent.gradient, ent.t_max_3min, ent.tuer, ent.t_wt,
                 ent.t_wt_anstieg, ent.puffer_unten, ent.wartung, ent.handbetrieb,
-                ent.tuerkontakt_vorhanden, ent.can_alter,
+                ent.tuerkontakt_vorhanden, ent.can_alter, ent.abgas_fehler,
                 self._phase_id, self._phase_seit_id,
                 f"input_number.{praefix}_t_maximum",
                 f"input_number.{praefix}_t_phasenstart",
@@ -266,6 +267,7 @@ class Eingaenge:
             ausloeser=ausloeser,
             dp_alter_s=dp_alter,
             can_alter_s=self._zahl(self.ent.can_alter),
+            fuehler_defekt=self._wert(self.ent.abgas_fehler) == "on",
             # Nur ein klares „aus“ schaltet den Türkontakt ab.
             tuerkontakt_vorhanden=self._wert(self.ent.tuerkontakt_vorhanden) != "off",
         )

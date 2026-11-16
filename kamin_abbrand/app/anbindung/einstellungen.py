@@ -55,6 +55,10 @@ class Rolle:
 ROLLEN: tuple[Rolle, ...] = (
     Rolle("abgas", "Abgastemperatur", "Der wichtigste Messwert. Danach richtet sich die ganze Steuerung.",
           ("sensor",), PFLICHT, einheit="°C", fahrenheit=True),
+    Rolle("abgas_fehler", "Abgasfühler Fehler",
+          "Meldet einen Defekt des Abgasfühlers, zum Beispiel ein offenes Thermoelement (an = Fehler). "
+          "Bei Feuer geht die App dann sofort in Störung und öffnet die Klappe, im Betrieb fällt sie auf Lauschen zurück.",
+          ("binary_sensor",)),
     Rolle("tuer", "Türkontakt", "Meldet, ob die Ofentür offen ist. Die Klappe öffnet dann sofort.",
           ("binary_sensor",), EMPFOHLEN),
     Rolle("t_wt", "Wärmetauscher", "Wassertemperatur am Ofen. Schützt vor Überhitzung des Wassers.",
@@ -111,7 +115,7 @@ ROLLEN: tuple[Rolle, ...] = (
 )
 ROLLEN_NACH_NAME = {r.schluessel: r for r in ROLLEN}
 _EINGANG_FELDER = ("abgas", "druck", "gradient", "t_max_3min", "tuer", "t_wt", "t_wt_anstieg",
-                   "puffer_unten", "wartung", "handbetrieb", "can_alter")
+                   "puffer_unten", "wartung", "handbetrieb", "can_alter", "abgas_fehler")
 # Für Auswertungen mitgelesen, der Kern bekommt sie nicht.
 ZUSATZ_ROLLEN = ("vorlauf", "ruecklauf", "pumpe", "pumpe_stellsignal", "puffer_oben", "waermezaehler", "waermeleistung", "energiezaehler", "t_aussen", "lueftung")
 
@@ -220,7 +224,7 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
         _f("fuehler_art", "Abgasfühler", "LEDA LUC: meldet nur Änderungen, Druck und CAN-Alter überbrücken einen stehenden Wert. "
            "Eigener Fühler: meldet regelmäßig, nur sein eigenes Alter zählt.", 1, 2, 1, "", auswahl=FUEHLER_AUSWAHL),
         _f("fuehler_timeout", "Fühler gilt ohne Feuer als stumm nach", "So lange darf der Messwert ohne Meldung bleiben, solange kein Feuer brennt.", 60, 3600, 30, "s"),
-        _f("fuehler_timeout_feuer", "Fühler gilt bei Feuer als stumm nach", "Bei Feuer (Anheizen, Abbrand, Ausbrand) geht die App danach in Störung und öffnet die Klappe ganz.", 15, 600, 5, "s"),
+        _f("fuehler_timeout_feuer", "Fühler gilt bei Feuer als stumm nach", "Bei Feuer (Anheizen, Abbrand, Ausbrand) geht die App danach in Störung und öffnet die Klappe ganz. Mindestens doppelt so lang wie die längste Meldepause des Fühlers: Sendet er bei kleinen Änderungen nur alle 60 s, also 120 s.", 15, 600, 5, "s"),
         _f("fuehler_ausfall", "Störung bei ausgefallenem Fühler nach", "So lange darf der Abgasfühler in Home Assistant „nicht verfügbar“ sein.", 10, 300, 5, "s"),
         _f("feuer_twt_anstieg", "Feuer am Wasser erkannt ab", "So viel muss das Wasser in 10 Minuten steigen.", 1, 20, 0.5, "K"),
         _f("wartung_timeout", "Wartung endet nach", "Danach beendet die App die Wartung von selbst.", 5, 240, 5, "min"),

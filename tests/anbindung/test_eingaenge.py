@@ -275,3 +275,14 @@ def test_sensor_weg_mit_eigener_grenze():
     ereignis(eingaenge, E.abgas, "unavailable", zeit=JETZT)
     assert not eingaenge.pruefe_sensor_weg(JETZT + 29, 30)
     assert eingaenge.pruefe_sensor_weg(JETZT + 30, 30)
+
+
+def test_abgas_fehler_rolle_geht_als_defekt_in_den_kern():
+    fehler = "binary_sensor.abgas_fehler"
+    eingaenge = baue(zustand(E.abgas, "200"), zustand(fehler, "off"),
+                     entitaeten=dataclasses.replace(E, abgas_fehler=fehler))
+    assert eingaenge.eingaben(JETZT, TICK).fuehler_defekt is False
+    ereignis(eingaenge, fehler, "on")
+    assert eingaenge.eingaben(JETZT, TICK).fuehler_defekt is True
+    ereignis(eingaenge, fehler, "unavailable")
+    assert eingaenge.eingaben(JETZT, TICK).fuehler_defekt is False

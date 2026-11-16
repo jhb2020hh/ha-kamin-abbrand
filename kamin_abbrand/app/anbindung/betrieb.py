@@ -90,6 +90,9 @@ def abgas_frisch(app: Any, eid: str, jetzt: float) -> bool:
     t = app.eingaenge.temperatur_c(eid)
     if eintrag is None or t is None or not _T_UNTEN <= t <= T_DECKEL:
         return False
+    fehler = app.eingaenge.ent.abgas_fehler
+    if fehler and app.eingaenge.wert(fehler) == "on":
+        return False            # Der Fühler meldet selbst einen Defekt, der Wert steht nur noch.
     if jetzt - eintrag.gemeldet <= app.parameter_neu.fuehler_timeout:
         return True
     # Ein eigener Fühler meldet regelmäßig; das CAN-Alter des LUC sagt über ihn nichts.

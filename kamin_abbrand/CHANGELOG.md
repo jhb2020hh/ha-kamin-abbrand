@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3
+
+- Neu: Rolle „Abgasfühler Fehler“ unter Ein-/Ausgänge (optional, binary_sensor, an = Defekt). Der ESPHome-Fühler mit MAX31856 verwirft ungültige Messungen (`filter_out: nan`). Bei einem offenen Thermoelement bleibt sein Wert stehen, statt „nicht verfügbar“ zu werden, und die App merkte das erst nach der Meldepause. Jetzt gilt der Fühler sofort als stumm, sobald der Fehlermelder an ist: Bei Feuer folgt die Störung mit offener Klappe und Neustart des Fühlers, im Betrieb der Rückfall auf Lauschen. Die Störung endet erst, wenn der Melder wieder aus ist und frische Werte kommen.
+- Korrigiert: In 0.5.2 nannte die Doku 30 s als Grenze „bei Feuer stumm“ für einen Fühler mit 5-s-Takt. Der Fühler sendet bei kleinen Änderungen aber nur alle 60 s, fällt die Temperatur langsam, kommt also nur ein Wert pro Minute (gemessen: Pausen bis 62 s). 30 s hätten eine falsche Störung ausgelöst. Die Vorgabe 120 s passt; Doku und Hilfetext erklären jetzt die Regel „doppelte längste Pause“.
+
 ## 0.5.2
 
 - Neu: Unter Parameter → Sicherheit wählst du den Abgasfühler: „LEDA LUC“ (Vorgabe, wie bisher) oder „Eigener Fühler“. Ein eigener Fühler meldet regelmäßig, dann zählt nur sein eigenes Alter. Bisher galt bei Feuer die jüngste Meldung von Abgas oder Druck, und der Druck kommt weiter vom LUC. Ein eigener Fühler, der verbunden bleibt, aber nichts mehr meldet, wäre bei Feuer nicht aufgefallen, solange der LUC lief. Fällt er ganz aus („nicht verfügbar“), griff schon bisher die Störung.

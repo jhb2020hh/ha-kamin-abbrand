@@ -79,6 +79,8 @@ def signal_bewerten(e: Eingaben, p: Parameter, phase: str) -> str:
     LEDA LUC: Mit CAN-Alter ist das eindeutig. Ohne zählt die jüngste Änderung von Abgas oder Druck.
     Nur bei Feuer ist die kurze Grenze zulässig: In Ruhe stand der Druck schon 14 min still.
     """
+    if e.fuehler_defekt:
+        return SIGNAL_STUMM     # Der Fühler meldet selbst einen Defekt, sein Wert steht nur noch.
     feuer_phase = phase in (ANHEIZEN, ABBRAND, AUSBRAND)
     if fuehler_eigen(p):
         if e.t_alter_s > (p.fuehler_timeout_feuer if feuer_phase else p.fuehler_timeout):

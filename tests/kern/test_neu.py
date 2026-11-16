@@ -293,3 +293,31 @@ def test_eigener_fuehler_ausfall_meldet_eingestellte_zeit():
     e = s.schritt(eingabe(t=None, ausloeser=SENSOR_WEG))
     assert s.zustand.phase == STOERUNG
     assert any("Kein Messwert vom Abgasfühler seit 30 s" in m.text for m in e.meldungen)
+
+
+# ---------- Fehlermeldung des Abgasfühlers ----------
+
+def test_fuehler_defekt_ist_stumm_auch_bei_frischem_wert():
+    e = eingabe(t_alter_s=2, fuehler_defekt=True)
+    assert signal_bewerten(e, _eigen(), ABBRAND) == SIGNAL_STUMM
+    assert signal_bewerten(e, Parameter(), ABBRAND) == SIGNAL_STUMM
+
+
+def test_fuehler_defekt_im_abbrand_sofort_stoerung_und_bleibt():
+    z = Zustand(phase=ABBRAND, phase_seit=T0 - 3600, letzter_lauf=T0 - 5, t_maximum=220, t_phasenstart=100,
+                i_anteil=40, klappe_soll=40)
+    s = Steuerung(_eigen(), z, regelstand=NEU, takt_s=5)
+    e = s.schritt(eingabe(t=231.0, t_alter_s=3, fuehler_defekt=True))
+    assert s.zustand.phase == STOERUNG and e.klappe == 100
+    assert AKTION_SNIFFER_RESTART in e.aktionen
+    assert any("meldet einen Defekt" in m.text for m in e.meldungen)
+    s.schritt(eingabe(t=231.0, t_alter_s=3, fuehler_defekt=True, jetzt=T0 + 5))
+    assert s.zustand.phase == STOERUNG
+    s.schritt(eingabe(t=228.0, t_alter_s=2, fuehler_defekt=False, jetzt=T0 + 10))
+    assert s.zustand.phase == ANHEIZEN
+
+
+def test_fuehler_defekt_ohne_feuer_oeffnet_nicht():
+    s = steuerung(STANDBY)
+    s.schritt(eingabe(t=21, t_alter_s=2, fuehler_defekt=True))
+    assert s.zustand.phase == STANDBY

@@ -373,6 +373,14 @@ def _stoerung_fuehler_neu(lauf: Lauf) -> None:
 
 
 def _eingefroren_neu(lauf: Lauf) -> None:
+    if lauf.e.fuehler_defekt:
+        w = lauf.w
+        phase_setzen(lauf, STOERUNG)
+        lauf.push(TITEL_STOERUNG,
+                  f"Der Abgasfühler meldet einen Defekt (letzter Wert {runde(w.t)} °C), etwa ein offenes "
+                  f"Thermoelement. Zuluftklappe wird geöffnet, der Fühler wird neu gestartet.")
+        lauf.aktionen.append(AKTION_SNIFFER_RESTART)
+        return
     if not fuehler_eigen(lauf.p):
         _eingefroren(lauf)
         return

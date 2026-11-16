@@ -145,6 +145,7 @@ class Eingaben:
     can_alter_s: Optional[float] = None  # Sekunden seit dem letzten CAN-Frame (nach dem Flashen)
     tuerkontakt_vorhanden: bool = True
     brennstoff: str = HOLZ
+    fuehler_defekt: bool = False        # Fehlermeldung des Abgasfühlers (Rolle abgas_fehler) ist an
 
 
 @dataclass
