@@ -43,7 +43,7 @@ STATIK = Path(__file__).parent.parent / "web"
 KATALOG_GUELTIG_S = 10.0
 MAX_STUNDEN = 12.0
 MAX_KWH = 1_000_000.0
-VERSION = "0.5.3"     # Wie version in config.yaml, ein Test prüft das.
+VERSION = "0.5.4"     # Wie version in config.yaml, ein Test prüft das.
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 

@@ -1,9 +1,26 @@
-"""Regelstrategie 2.0: PI ohne D-Anteil mit Schwingungswächter (nur Regelstand neu).
+"""Regelstrategie 2.0: PI mit Schwingungswächter und gerichtetem Vorhalt (nur Regelstand neu).
 
 Herleitung (Auswertung 14.–16.11.2026, 20 Abbrände im Betrieb): Der Weg Klappe → Abgas hat 35–80 s Totzeit
 und je nach Holz und Abbrandstand 0,7–2,7 K/%. Ein fest eingestellter Regler ist für die steile Strecke zu
-scharf (Dauerschwingung um 3 min) oder für die flache zu träge. Der D-Anteil auf dem 2-min-Gradienten hinkt
-etwa 1 min nach und wirkt an der Schwingfrequenz als zusätzliche Verstärkung; er entfällt.
+scharf (Dauerschwingung um 3 min) oder für die flache zu träge.
+
+Vorhalt (0.5.4, Auswertung 16.11. mit dem eigenen Fühler, Vergleichsbank mit Antrieb 150 s, 2 % Ansprech-
+schwelle, Fühler 5 s / 1 K, Abfall langsamer als Anstieg): Der klassische D-Anteil auf dem 2-min-Gradienten
+hinkt etwa 1 min nach und wirkt an der Schwingfrequenz als zusätzliche Verstärkung (Bank: bis 74 K Schwingung).
+Der Vorhalt der 2.0 arbeitet deshalb anders:
+- auf der Ausgleichsgeraden über 60 s (hinkt etwa 30 s nach),
+- nur, wenn sich die Temperatur vom Ziel entfernt (unter dem Ziel fallend, über dem Ziel steigend). Läuft sie
+  aufs Ziel zu, regeln P und I allein; ein Bremsen dort verlängert nur das Unterschwingen,
+- beim Fallen stärker (Klappe auf geht schnell und ist sicher, der Fühler über der Wassertasche zeigt den
+  Abfall verzögert) als beim Steigen (Schließen ist ohnehin auf die Schließrate begrenzt),
+- mit der Dämpfung im Quadrat: Bei Schwingung tritt er zuerst zurück.
+Vorgabe 0,5 fallend / 0,25 steigend. Bank, Median über 54 Strecken: Unterschwingen 10,9 → 9,4 K, Schwingung
+3,1 → 2,5 K, Klappenweg 1,5 → 1,7 %/min. Im Regelkreismodell (bis 3,5 K/%, LUC-Fühler) bleibt es überall ruhig;
+0,75 beim Fallen schwingt dort auf der steilsten Strecke (6–8 K).
+
+Langsamer Antrieb: Im Abbrand fährt die 2.0 höchstens wenige % je 30 s, der Antrieb schafft 20 %/30 s. Begrenzend
+ist nur die Schließrate nach dem Anheizen. Die Ansprechschwelle des Antriebs (Ist folgt in 1,5–3-%-Stufen)
+trägt in der Bank etwa 0,5 K zum Pendeln bei, sie ist nicht die Ursache.
 
 Der Wächter beobachtet die Umkehrpunkte der Abgastemperatur (Zickzack mit 8 K Hub, Halbwellen 40–300 s,
 Gedanke wie bei Hägglunds Schwingungsdetektor). Drei regelmäßige Halbwellen heißen Schwingung: Die Dämpfung
@@ -100,8 +117,19 @@ def beobachten(z: Zustand, t: float, jetzt: float) -> bool:
     return erkannt
 
 
+def vorhalt_2(w: Werte, p: Parameter, m: float) -> tuple[float, float]:
+    """(Kd, Steigung) der Strategie 2.0. Kd ist 0, solange die Temperatur aufs Ziel zuläuft oder steht."""
+    g = w.g if w.g_kurz is None else w.g_kurz
+    e = w.ziel - w.t
+    if e * g >= 0:
+        return 0.0, g
+    kd = p.regler2_vorhaltung_fallend if g < 0 else p.regler2_vorhaltung_steigend
+    return max(kd, 0.0) * m * m, g
+
+
 def werte_2(w: Werte, p: Parameter, z: Zustand) -> Werte:
-    """Die Reglerwerte der Strategie 2.0 in `Werte`: Kp und Tn gedämpft, ohne D-Anteil."""
+    """Die Reglerwerte der Strategie 2.0 in `Werte`: Kp und Tn gedämpft, gerichteter Vorhalt."""
     m = min(max(z.daempfung, DAEMPFUNG_MIN), 1.0)
+    kd, g = vorhalt_2(w, p, m)
     return replace(w, kp=p.regler2_verstaerkung * m,
-                   tn=max(p.regler2_nachstellzeit, 0.5) / math.sqrt(m), kd=0.0)
+                   tn=max(p.regler2_nachstellzeit, 0.5) / math.sqrt(m), kd=kd, g=g)

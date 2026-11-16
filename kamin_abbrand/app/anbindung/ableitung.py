@@ -9,6 +9,7 @@ from collections import deque
 from typing import Optional
 
 GRADIENT_FENSTER_S = 120.0
+STEIGUNG_FENSTER_S = 60.0
 MAX_FENSTER_S = 180.0
 ANSTIEG_FENSTER_S = 600.0
 
@@ -44,6 +45,26 @@ class Ableitung:
             if t1 > beginn:
                 summe += (w1 - w0) / (t1 - t0) * (t1 - max(t0, beginn)) / GRADIENT_FENSTER_S
         return round(summe * 60.0, 1)
+
+    def steigung(self, jetzt: float, fenster_s: float = STEIGUNG_FENSTER_S) -> float:
+        """K/min, Ausgleichsgerade durch die Meldungen der letzten `fenster_s` bis zur letzten Meldung.
+
+        Für den Vorhalt der Regelstrategie 2.0: Sie hinkt nur etwa `fenster_s` / 2 nach, der 2-min-Gradient
+        etwa 1 min. Liegt nur eine Meldung im Fenster, gilt die Gerade durch die letzten beiden.
+        """
+        if len(self._abgas) < 2:
+            return 0.0
+        ende = self._abgas[-1][0]
+        punkte = [(z, w) for z, w in self._abgas if z >= ende - fenster_s]
+        if len(punkte) < 2:
+            punkte = list(self._abgas)[-2:]
+        n = len(punkte)
+        mz = sum(z for z, _ in punkte) / n
+        mw = sum(w for _, w in punkte) / n
+        sxx = sum((z - mz) ** 2 for z, _ in punkte)
+        if sxx <= 0:
+            return 0.0
+        return round(sum((z - mz) * (w - mw) for z, w in punkte) / sxx * 60.0, 1)
 
     def t_max_3min(self, jetzt: float) -> Optional[float]:
         werte = [w for z, w in self._abgas if z >= jetzt - MAX_FENSTER_S]

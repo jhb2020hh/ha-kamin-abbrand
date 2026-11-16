@@ -427,3 +427,30 @@ def test_merker_der_automation_wird_sofort_gespeichert(tmp_path):
     assert Speicher(tmp_path / "e.json").automation_von_app_aus is True
     s.automation_merken(False)
     assert Speicher(tmp_path / "e.json").automation_von_app_aus is False
+
+
+def test_steigung_ueber_60_s_folgt_schneller_als_der_gradient():
+    """Vorhalt der Regelstrategie 2.0: Der Abfall der letzten Minute zählt, nicht der Anstieg davor."""
+    a = Ableitung()
+    for s in range(0, 61, 5):
+        a.abgas(1000.0 + s, 240.0 + s / 6)          # 1 Minute +10 K/min
+    for s in range(65, 126, 5):
+        a.abgas(1000.0 + s, 250.0 - (s - 60) / 6)   # 1 Minute −10 K/min
+    assert a.steigung(1125.0) == pytest.approx(-10.0)
+    assert a.gradient(1125.0) > -1.0                # der 2-min-Gradient sieht noch fast nichts
+
+
+def test_steigung_mit_einer_meldung_im_fenster():
+    a = Ableitung()
+    a.abgas(1000.0, 250.0)
+    a.abgas(1090.0, 247.0)
+    assert a.steigung(1100.0) == pytest.approx(-2.0)
+    assert Ableitung().steigung(1000.0) == 0.0
+
+
+def test_eingaben_tragen_die_kurze_steigung():
+    ein = Eingaenge(Entitaeten(abgas="sensor.a"), "kamin_abbrand")
+    for i, w in enumerate((250, 248, 246)):
+        ein.aufbauen([{"entity_id": "sensor.a", "state": str(w), "attributes": {"unit_of_measurement": "°C"},
+                       "last_reported": None}], 1000.0 + 20 * i)
+    assert ein.eingaben(1040.0, "tick").g_kurz == pytest.approx(-6.0)

@@ -76,7 +76,7 @@ Das Menü **Einstellungen** hat sechs Reiter:
   Die Mindestklappe im Abbrand („Klappe mindestens“, beim Entgasen und bei Briketts) geht bis 0 %. Unter 5 % fragt die App nach, weil der Regler die Luft dann auch bei voller Flamme ganz schließen darf. Das Feuer kann schwelen und viel Kohlenmonoxid bilden. Stelle das nur ein, wenn ein CO-Melder im Raum ist. Die Bestätigung protokolliert die App mit Zeit und Wert im Änderungsprotokoll (`aenderungen.jsonl`, Eintrag `rueckfrage_bestaetigt`) und zeigt sie am Feld an. Ein Wert ab 5 % oder „Zurücksetzen“ hebt sie auf.
 - **Anlage:** Ofen normal (luftgeführt) oder wassergeführt, Puffer, Pumpe, Klappe, Türkontakt, Wärmeerzeuger, Einheiten, Holz. Die Erzeuger lassen sich beliebig kombinieren.
 - **Ein-/Ausgänge:** Sensoren und Schalter zuweisen. Pflicht ist nur die Abgastemperatur. Änderungen gelten ohne Neustart. Bei wassergeführten Öfen weist du hier auch die Fühler und den Wärmemengenzähler zu, getrennt nach Energie und Leistung.
-- **Regler:** Oben die Wahl der Regelstrategie: „Klassisch“ (PI mit Vorhalt, Vorgabe) oder „Regelstrategie 2.0“ (PI ohne Vorhalt mit Schwingungswächter). Darunter stehen die Werte der gewählten Strategie. Bei 2.0 zeigt die Seite die Dämpfung, die wirksamen Werte und den Zeitpunkt der letzten Dämpfung, dazu „Dämpfung auf 100 % zurücksetzen“. Was die Werte bewirken, steht unten unter „Regelung und Parameter erklärt“.
+- **Regler:** Oben die Wahl der Regelstrategie: „Klassisch“ (PI mit Vorhalt, Vorgabe) oder „Regelstrategie 2.0“ (PI mit gerichtetem Vorhalt und Schwingungswächter). Darunter stehen die Werte der gewählten Strategie. Bei 2.0 zeigt die Seite die Dämpfung, die wirksamen Werte und den Zeitpunkt der letzten Dämpfung, dazu „Dämpfung auf 100 % zurücksetzen“. Was die Werte bewirken, steht unten unter „Regelung und Parameter erklärt“.
 
   Bei „Klassisch“ gibt es Kp, Tn und Kd sowie Auto-Tune. „Aus dem Verlauf berechnen“ prüft den Abbrand im Betrieb seit der letzten Regleränderung (höchstens sieben Tage, mindestens 30 min Abbrand) auf Schwingungen der Abgastemperatur. Schwingt sie, senkt der Vorschlag die Verstärkung, die der Regler bei dieser Periode wirklich hat: bei abklingender Schwingung auf 70 %, bei Dauerschwingung auf ein Drittel. Tn wird mindestens 2,2 Perioden, und der D-Anteil geht auf 0. Ist der Regelkreis ruhig, gibt es keinen neuen Vorschlag, die Werte werden also nie schärfer. „Vorschlag übernehmen“ setzt Kp, Tn und Kd zusammen. Der Testlauf mit gezielter Klappenbewegung ist derzeit gesperrt.
 
@@ -122,7 +122,8 @@ Dieser Abschnitt erklärt die Begriffe und was jede Einstellung bewirkt. Die Zah
 | Schwingung | Die Temperatur pendelt regelmäßig um das Ziel, weil der Regler zu spät und zu stark nachsteuert. Typisch hier: 3 min Periode, ±10 K, die Klappe pendelt mit. |
 | P-Anteil, Verstärkung Kp | Sofortige Reaktion auf die Abweichung: Klappe ändert sich um Kp × Abweichung. Kp 0,3 %/K heißt: 10 K zu heiß, also 3 % weniger Klappe. Größer reagiert schneller, schwingt aber eher. Kleiner ist ruhiger, aber träger. |
 | I-Anteil, Nachstellzeit Tn | Der Teil der Klappe, der eine bleibende Abweichung langsam wegarbeitet. Er gleicht aus, dass das Holz im Lauf des Abbrands mehr Luft braucht. Kürzeres Tn arbeitet schneller nach, macht aber unruhiger. Längeres Tn ist ruhiger, die Temperatur bleibt dann länger neben dem Ziel. Der I-Anteil steht im Experten-Modus auf der Startseite. |
-| D-Anteil, Vorhalt Kd | Nur bei „Klassisch“. Reagiert auf den Anstieg der letzten 2 min. Der Anstieg hinkt etwa 1 min nach, deshalb verstärkt Kd bei 3–4 min Periode die Schwingung. Empfohlen: 0. |
+| D-Anteil, Vorhalt Kd | Bei „Klassisch“: reagiert auf den Anstieg der letzten 2 min. Der hinkt etwa 1 min nach, deshalb verstärkt Kd bei 3–4 min Periode die Schwingung. Empfohlen: 0. |
+| Gerichteter Vorhalt (2.0) | Reagiert auf die Steigung der letzten 60 s (hinkt nur etwa 30 s nach), und nur, wenn sich das Abgas vom Ziel entfernt: unter dem Ziel fallend öffnet er die Klappe, über dem Ziel steigend schließt er sie. Läuft die Temperatur schon aufs Ziel zu, ist er aus. So fängt er Unter- und Überschreiten früh ab, ohne die Rückkehr zum Ziel zu bremsen. Beim Fallen wirkt er stärker als beim Steigen. |
 | Anti-Windup | Steht die Klappe an ihrer Grenze (mindestens/höchstens), wächst der I-Anteil nicht weiter. So überschießt der Regler danach nicht. |
 | Startwert | Mit dieser Klappenstellung (I-Anteil) beginnt der Regler beim Eintritt in den Abbrand, abhängig davon, wie heiß der Ofen beim Anheizen war. |
 | Schwingungswächter | Nur bei 2.0. Er zählt Umkehrpunkte der Abgastemperatur: Ein Umkehrpunkt gilt, wenn die Temperatur danach mindestens 8 K zurückläuft. Drei gleichmäßige Halbwellen von 40–300 s heißen Schwingung. |
@@ -132,7 +133,9 @@ Dieser Abschnitt erklärt die Begriffe und was jede Einstellung bewirkt. Die Zah
 ### Regelstrategie
 
 - **Klassisch:** PI-Regler mit optionalem Vorhalt und festen Werten (Kp, Tn, Kd). Auto-Tune „Aus dem Verlauf“ schlägt bei Schwingung ruhigere Werte vor, du bestätigst sie.
-- **Regelstrategie 2.0:** PI-Regler ohne Vorhalt mit Grundwerten Kp 0,3 %/K und Tn 2 min. Der Schwingungswächter dämpft selbst, sobald die Temperatur pendelt, und gibt nach ruhiger Zeit wieder frei. Grund: Dein Ofen reagiert je nach Holz bis zu viermal unterschiedlich stark auf die Klappe. Feste Werte wären entweder für das eine Holz zu scharf oder für das andere zu träge.
+- **Regelstrategie 2.0:** PI-Regler mit Grundwerten Kp 0,3 %/K und Tn 2 min und gerichtetem Vorhalt (0,5 beim Fallen, 0,25 beim Steigen). Der Schwingungswächter dämpft selbst, sobald die Temperatur pendelt, und gibt nach ruhiger Zeit wieder frei. Grund: Dein Ofen reagiert je nach Holz bis zu viermal unterschiedlich stark auf die Klappe. Feste Werte wären entweder für das eine Holz zu scharf oder für das andere zu träge.
+
+Warum der Vorhalt beim Fallen stärker ist: Die Klappe öffnet schnell, und mehr Luft ist immer sicher. Schließen ist dagegen auf die Schließrate begrenzt (10 % je 30 s). Dazu zeigt ein Fühler über der Wassertasche den Abfall verzögert. Der langsame Antrieb (150 s für den ganzen Weg) begrenzt die 2.0 im Abbrand nicht: Sie verstellt höchstens wenige % je 30 s, der Antrieb schafft 20 %. Seine Ansprechschwelle (die Iststellung folgt in Stufen von 1,5–3 %) trägt nur wenig zum Pendeln bei.
 
 Was du bei 2.0 beobachten kannst: Sinkt die Dämpfung bei jedem Abbrand auf 30 %, ist der Grundwert Kp zu hoch; stelle ihn etwas niedriger. Bleibt sie immer bei 100 % und die Temperatur liegt lange unter dem Ziel, darf Kp etwas höher oder Tn etwas kürzer sein. Nach einer Änderung der Grundwerte lohnt sich „Dämpfung auf 100 % zurücksetzen“.
 
@@ -144,6 +147,8 @@ Was du bei 2.0 beobachten kannst: Sinkt die Dämpfung bei jedem Abbrand auf 30 %
 | Verstärkung Kp (2.0: 0,3 %/K) | Höher reagiert schneller auf Abweichungen und schwingt eher. Niedriger ist ruhiger und träger. |
 | Nachstellzeit Tn (2.0: 2 min) | Kürzer: Bleibende Abweichungen sind schneller weg, aber unruhiger. Länger: ruhiger, folgt dem Abbrand langsamer. |
 | Vorhalt Kd (nur Klassisch) | Auf 0 lassen (siehe Begriffe). |
+| Vorhalt beim Fallen (2.0: 0,5 %·min/K) | Höher fängt ein Absacken unter das Ziel früher ab, die Klappe bewegt sich aber mehr. Über 0,75 wird es auf steilen Strecken unruhig. 0 = aus. |
+| Vorhalt beim Steigen (2.0: 0,25 %·min/K) | Höher bremst ein Überschießen früher. 0 = aus. |
 
 ### Parameter (Einstellungen → Parameter)
 

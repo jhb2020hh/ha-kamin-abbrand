@@ -728,11 +728,12 @@ function vorschlagZeigen(v) {
 function strategie2Karte(d) {
   const proz = Math.round(d.daempfung * 100);
   return h("div", { klasse: "karte" }, h("h2", {}, "Regelstrategie 2.0"),
-    h("p", { klasse: "leise" }, "PI-Regler ohne Vorhalt. Der Schwingungswächter beobachtet im Abbrand die Umkehrpunkte der Abgastemperatur. Pendelt sie regelmäßig (mindestens 8 K Hub, 1,3–10 min Periode), nimmt er die Verstärkung auf 70 % zurück und verlängert die Nachstellzeit, bis höchstens 30 %. Nach 15 min ohne Schwingung gibt er schrittweise wieder frei."),
+    h("p", { klasse: "leise" }, "PI-Regler mit gerichtetem Vorhalt. Der Vorhalt wirkt nur, wenn sich das Abgas vom Ziel entfernt: Fällt es unter dem Ziel weiter, öffnet die Klappe früher, steigt es über dem Ziel weiter, schließt sie früher. Der Schwingungswächter beobachtet im Abbrand die Umkehrpunkte der Abgastemperatur. Pendelt sie regelmäßig (mindestens 8 K Hub, 1,3–10 min Periode), nimmt er die Verstärkung auf 70 % zurück, verlängert die Nachstellzeit und nimmt den Vorhalt noch stärker zurück, bis höchstens 30 %. Nach 15 min ohne Schwingung gibt er schrittweise wieder frei."),
     h("div", { klasse: "vorschlag" },
       h("div", {}, h("div", { klasse: "etikett" }, "Dämpfung"), h("b", {}, `${proz} %`)),
       h("div", {}, h("div", { klasse: "etikett" }, "Wirksam Kp"), h("b", {}, `${zahl(d.regler2[0].wert * d.daempfung, 2)} %/K`)),
       h("div", {}, h("div", { klasse: "etikett" }, "Wirksam Tn"), h("b", {}, `${zahl(d.regler2[1].wert / Math.sqrt(d.daempfung), 1)} min`)),
+      h("div", {}, h("div", { klasse: "etikett" }, "Wirksam Vorhalt fallend / steigend"), h("b", {}, `${zahl(d.regler2[2].wert * d.daempfung ** 2, 2)} / ${zahl(d.regler2[3].wert * d.daempfung ** 2, 2)}`)),
       d.gedaempft && h("div", {}, h("div", { klasse: "etikett" }, "Zuletzt gedämpft"), h("b", {}, uhr(d.gedaempft)))),
     d.regler2.map(schieber),
     proz < 100 && h("button", { klasse: "textknopf", onclick: async () => { try { await api("api/daempfung/zuruecksetzen", {}); toast("Dämpfung auf 100 % zurückgesetzt"); reglerZeichnen(); } catch (f) { melden(f); } } }, "Dämpfung auf 100 % zurücksetzen"));

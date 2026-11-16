@@ -110,10 +110,13 @@ class Parameter:
     abkuehlen_max_dauer_brikett: float = 600    # min
     brikett_nachlauf: float = 600               # min nach dem letzten Brikett-Feuer
     # Regelstrategie (nur Regelstand neu, nur in der App): 1 = klassisch (PI + D, Kp/Tn/Kd oben),
-    # 2 = Regelstrategie 2.0 (PI ohne D mit Schwingungswächter, eigene Kp/Tn). Herleitung in kern/schwingung.py.
+    # 2 = Regelstrategie 2.0 (PI mit Schwingungswächter und gerichtetem Vorhalt, eigene Werte).
+    # Herleitung in kern/schwingung.py.
     regelstrategie: float = 1
     regler2_verstaerkung: float = 0.3           # %/K
     regler2_nachstellzeit: float = 2            # min
+    regler2_vorhaltung_fallend: float = 0.5     # %·min/K, Abgas fällt unter dem Ziel weiter: Klappe auf
+    regler2_vorhaltung_steigend: float = 0.25   # %·min/K, Abgas steigt über dem Ziel weiter: Klappe zu
 
     @classmethod
     def feldnamen(cls) -> tuple[str, ...]:
@@ -132,6 +135,7 @@ class Eingaben:
     t: Optional[float]                  # Abgas, None = kein Zahlenwert (unavailable/unknown)
     t_alter_s: float = 0.0              # Sekunden seit dem letzten gemeldeten Abgaswert
     g: float = 0.0                      # Gradient K/min (HA-Helfer)
+    g_kurz: Optional[float] = None      # Steigung K/min über 60 s (App), None = g verwenden
     tmax3: Optional[float] = None       # Maximum 3 min (HA-Helfer), None = t verwenden
     tuer_offen: Optional[bool] = False  # None = Kontakt unbekannt: weder offen noch zu
     twt_roh: Optional[float] = None     # T.WT, roh; ungültig/None wird im Kern zu 0
@@ -181,6 +185,7 @@ NUR_APP_FELDER = frozenset({
     "startfenster_brikett", "anheizen_timeout_brikett", "klappe_min_abbrand_brikett", "klappe_glut_brikett",
     "glut_max_dauer_brikett", "abkuehlen_max_dauer_brikett", "brikett_nachlauf",
     "regelstrategie", "regler2_verstaerkung", "regler2_nachstellzeit",
+    "regler2_vorhaltung_fallend", "regler2_vorhaltung_steigend",
     "fuehler_art", "fuehler_timeout_feuer", "fuehler_ausfall",
 })
 

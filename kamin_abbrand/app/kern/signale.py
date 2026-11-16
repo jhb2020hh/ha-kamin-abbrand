@@ -168,6 +168,7 @@ class Werte:
     brikett: bool = False               # Briketts gewählt: Parameter sind schon ersetzt
     nachlauf: bool = False              # Kohle glüht womöglich noch: Klappe nicht unter kglut_brikett
     kglut_brikett: float = 25
+    g_kurz: Optional[float] = None      # Steigung über 60 s für den Vorhalt der Regelstrategie 2.0
 
 
 def nachlauf_aktiv(e: Eingaben, z: Zustand, p: Parameter, brikett: bool) -> bool:
@@ -240,4 +241,5 @@ def werte_ermitteln(e: Eingaben, p: Parameter, z: Zustand, brikett: bool = False
         brikett=brikett,
         nachlauf=nachlauf,
         kglut_brikett=p.klappe_glut_brikett,
+        g_kurz=e.g_kurz,
     )

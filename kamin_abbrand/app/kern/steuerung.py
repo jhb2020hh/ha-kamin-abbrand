@@ -95,7 +95,7 @@ class Steuerung:
 
     @staticmethod
     def _strategie_2(e: Eingaben, z: Zustand, p: Parameter, w):
-        """Regelstrategie 2.0: Schwingungswächter im Abbrand, Reglerwerte gedämpft und ohne D-Anteil."""
+        """Regelstrategie 2.0: Schwingungswächter im Abbrand, Reglerwerte gedämpft, gerichteter Vorhalt."""
         if z.phase == ABBRAND and not e.handbetrieb and w.t_ok:
             if e.ausloeser == TICK:
                 schwingung.beobachten(z, w.t, e.jetzt)

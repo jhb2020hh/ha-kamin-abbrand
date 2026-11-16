@@ -1,4 +1,4 @@
-"""Regelstrategie 2.0: PI ohne D-Anteil mit Schwingungswächter (kern/schwingung.py)."""
+"""Regelstrategie 2.0: PI mit Schwingungswächter und gerichtetem Vorhalt (kern/schwingung.py)."""
 from __future__ import annotations
 
 import math
@@ -67,12 +67,47 @@ def test_werte_aus_json_liste():
     assert isinstance(z.sw_wellen, tuple)
 
 
-def test_strategie_2_ohne_d_anteil():
+def _werte(t: float, g: float = 0.0, g_kurz=None, daempfung: float = 1.0, **p):
     from kern.signale import werte_ermitteln
     from kern.typen import Eingaben
-    p = Parameter(regelstrategie=2, regler_vorhaltung=5)
-    z = Zustand(daempfung=0.49)
-    w = schwingung.werte_2(werte_ermitteln(Eingaben(jetzt=0, t=250), p, z), p, z)
-    assert w.kd == 0
+    par = Parameter(regelstrategie=2, t_ziel=255, regler_vorhaltung=5, **p)
+    z = Zustand(daempfung=daempfung)
+    return schwingung.werte_2(werte_ermitteln(Eingaben(jetzt=0, t=t, g=g, g_kurz=g_kurz), par, z), par, z)
+
+
+def test_strategie_2_eigene_werte_klassischer_kd_zaehlt_nicht():
+    w = _werte(250, daempfung=0.49)
+    assert w.kd == 0            # Temperatur steht: kein Vorhalt, Kd 5 der klassischen Strategie gilt nicht
     assert w.kp == pytest.approx(0.3 * 0.49)
     assert w.tn == pytest.approx(2 / 0.7)
+
+
+@pytest.mark.parametrize("t,g,kd", [
+    (240, -6, 0.5),     # unter dem Ziel fallend: Klappe auf, voller Vorhalt beim Fallen
+    (270, 6, 0.25),     # über dem Ziel steigend: Klappe zu, Vorhalt beim Steigen
+    (240, 6, 0.0),      # unter dem Ziel steigend: läuft aufs Ziel zu, kein Bremsen
+    (270, -6, 0.0),     # über dem Ziel fallend: ebenso
+    (255, -6, 0.0),     # genau am Ziel
+])
+def test_vorhalt_nur_weg_vom_ziel(t, g, kd):
+    w = _werte(t, g_kurz=g)
+    assert w.kd == pytest.approx(kd)
+    assert w.g == g
+
+
+def test_vorhalt_oeffnet_beim_fallen():
+    from kern.klappe import _abbrand
+    w = _werte(240, g_kurz=-8)
+    z = Zustand(i_anteil=50, klappe_soll=50)
+    ohne = _werte(240, g_kurz=-8, regler2_vorhaltung_fallend=0)
+    assert _abbrand(z, w, 1000, 5, 50) == pytest.approx(_abbrand(z, ohne, 1000, 5, 50) + 0.5 * 8)
+
+
+def test_vorhalt_kurze_steigung_vor_gradient():
+    assert _werte(240, g=-1, g_kurz=-8).g == -8
+    assert _werte(240, g=-3).g == -3            # ohne kurze Steigung (alte Verläufe): 2-min-Gradient
+
+
+def test_vorhalt_mit_daempfung_im_quadrat():
+    w = _werte(240, g_kurz=-6, daempfung=0.5)
+    assert w.kd == pytest.approx(0.5 * 0.25)

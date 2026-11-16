@@ -251,8 +251,8 @@ REGLER_FELDER: tuple[Feld, ...] = (
     _f("regler_vorhaltung", "Vorhalt Kd", "Wirkt auf den Anstieg über 2 min. Der hinkt etwa 1 min nach und macht den Regler bei Schwingungen um 3–4 min schärfer statt ruhiger. Empfohlen: 0 (aus).", 0, 20, 0.5, "%·min/K"),
 )
 STRATEGIE_FELD = _f("regelstrategie", "Regelstrategie",
-       "Klassisch: PI-Regler mit Vorhalt (Kp, Tn, Kd). Regelstrategie 2.0: PI ohne Vorhalt "
-       "mit Schwingungswächter. Er erkennt im Abbrand eine Schwingung der Abgastemperatur und dämpft den "
+       "Klassisch: PI-Regler mit Vorhalt (Kp, Tn, Kd). Regelstrategie 2.0: PI mit Schwingungswächter und "
+       "gerichtetem Vorhalt. Der Wächter erkennt im Abbrand eine Schwingung der Abgastemperatur und dämpft den "
        "Regler selbst, bis sie aufhört. Gilt ab dem nächsten Takt.",
        1, 2, 1, "", auswahl=STRATEGIE_AUSWAHL)
 REGLER2_FELDER: tuple[Feld, ...] = (
@@ -260,6 +260,15 @@ REGLER2_FELDER: tuple[Feld, ...] = (
        "bei Schwingung selbst zurück (Dämpfung).", 0.05, 2, 0.05, "%/K"),
     _f("regler2_nachstellzeit", "Nachstellzeit Tn", "Grundwert der Regelstrategie 2.0. Bei Dämpfung wird sie länger.",
        0.5, 30, 0.5, "min"),
+    _f("regler2_vorhaltung_fallend", "Vorhalt beim Fallen",
+       "Fällt das Abgas unter dem Ziel weiter, öffnet die Klappe zusätzlich um diesen Wert je K/min Abfall "
+       "(Steigung über 60 s). So fängt sie das Unterschreiten früher ab. Läuft die Temperatur schon wieder aufs "
+       "Ziel zu, wirkt der Vorhalt nicht. Bei Dämpfung tritt er zuerst zurück. 0 schaltet ihn aus.",
+       0, 3, 0.05, "%·min/K"),
+    _f("regler2_vorhaltung_steigend", "Vorhalt beim Steigen",
+       "Steigt das Abgas über dem Ziel weiter, schließt die Klappe zusätzlich um diesen Wert je K/min Anstieg. "
+       "Kleiner als beim Fallen, weil das Schließen ohnehin auf die Schließrate begrenzt ist. 0 schaltet ihn aus.",
+       0, 3, 0.05, "%·min/K"),
 )
 FELDER = ({f.name: f for _, felder in PARAMETER_THEMEN for f in felder} | {f.name: f for f in REGLER_FELDER}
           | {f.name: f for f in REGLER2_FELDER} | {STRATEGIE_FELD.name: STRATEGIE_FELD})

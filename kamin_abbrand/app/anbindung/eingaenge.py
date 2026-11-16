@@ -256,6 +256,7 @@ class Eingaenge:
             t=self.temperatur_c(self.ent.abgas),
             t_alter_s=t_alter,
             g=self._zahl(self.ent.gradient) or 0.0 if self.ent.gradient else self.ableitung.gradient(jetzt),
+            g_kurz=self.ableitung.steigung(jetzt),
             tmax3=self._zahl(self.ent.t_max_3min) if self.ent.t_max_3min else self.ableitung.t_max_3min(jetzt),
             tuer_offen={"on": True, "off": False}.get(self._wert(self.ent.tuer)),
             twt_roh=self._zahl(self.ent.t_wt),

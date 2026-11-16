@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.4
+
+- Regelstrategie 2.0 überarbeitet: gerichteter Vorhalt statt gar keinem D-Anteil.
+  - Der Vorhalt reagiert auf die Steigung der letzten 60 s statt auf den 2-min-Gradienten. Er hinkt damit nur noch etwa 30 s nach statt 1 min. Der eigene Fühler meldet alle paar Sekunden, das macht das erst möglich.
+  - Er wirkt nur, wenn sich das Abgas vom Ziel entfernt: unter dem Ziel fallend → Klappe weiter auf, über dem Ziel steigend → Klappe weiter zu. Läuft die Temperatur aufs Ziel zu, ist er aus. Ein Bremsen dort hätte das Unterschwingen nur verlängert.
+  - Beim Fallen stärker (Vorgabe 0,5 %·min/K) als beim Steigen (0,25). Öffnen geht schnell und ist sicher, Schließen ist ohnehin auf die Schließrate begrenzt, und der Fühler über der Wassertasche zeigt den Abfall verzögert. Beide Werte stehen im Reiter Regler.
+  - Der Schwingungswächter nimmt den Vorhalt mit der Dämpfung im Quadrat zurück, bei 70 % Dämpfung also auf 49 %.
+  - Auf dem Abbrand vom 16.11. 21:42 hätte der Vorhalt beim Absacken von 263 auf 236 °C ab 21:45:40 um 7–9 % zusätzlich geöffnet. Der 2-min-Gradient zeigte da erst −4 K/min. Als die Temperatur ab 21:47:50 wieder stieg, war er sofort aus. Der alte D-Anteil hätte da noch weiter geöffnet.
+  - Geprüft in einer Vergleichsbank mit Antrieb (150 s, 2 % Ansprechschwelle), eigenem Fühler (5 s, Median, 1 K / 60 s) und langsamerem Abfall als Anstieg, 54 Strecken über je drei Abbrände. Im Median sinkt das Unterschwingen von 10,9 auf 9,4 K und das Pendeln von 3,1 auf 2,5 K, die Klappe bewegt sich etwas mehr (1,7 statt 1,5 %/min). Ein klassischer D-Anteil auf dem 2-min-Gradienten pendelt dort bis 74 K. Im Regelkreismodell mit bis zu 3,5 K/% bleibt 2.0 mit Vorhalt überall unter 5 K.
+- Antrieb geprüft: Die 150 s Laufzeit begrenzen die 2.0 im Abbrand nicht, nur die Schließrate direkt nach dem Anheizen. Die Iststellung folgt in Stufen von 1,5–3 %. In der Bank macht das etwa 0,5 K Pendeln aus, es ist nicht die Ursache.
+
 ## 0.5.3
 
 - Neu: Rolle „Abgasfühler Fehler“ unter Ein-/Ausgänge (optional, binary_sensor, an = Defekt). Der ESPHome-Fühler mit MAX31856 verwirft ungültige Messungen (`filter_out: nan`). Bei einem offenen Thermoelement bleibt sein Wert stehen, statt „nicht verfügbar“ zu werden, und die App merkte das erst nach der Meldepause. Jetzt gilt der Fühler sofort als stumm, sobald der Fehlermelder an ist: Bei Feuer folgt die Störung mit offener Klappe und Neustart des Fühlers, im Betrieb der Rückfall auf Lauschen. Die Störung endet erst, wenn der Melder wieder aus ist und frische Werte kommen.
