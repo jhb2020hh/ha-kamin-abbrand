@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.5
+
+- Korrigiert: Schieber in Regler und Einstellungen speicherten bei schnellen Schritten mit den Pfeiltasten manchmal einen Zwischenwert. Jeder Schritt schickte eine eigene Anfrage, und die kamen in beliebiger Reihenfolge an (22.11.: Vorhalt beim Fallen stand auf 0,30, obwohl der Schieber 0,25 zeigte). Jetzt ist je Feld nur eine Anfrage unterwegs, und wartende Zwischenwerte entfallen, sobald ein neuerer kommt. Gespeichert wird also immer der zuletzt eingestellte Wert.
+- Ebenso beim Klappenschieber im Handbetrieb. Die Knöpfe Hand, Automatik und Verlängern senden weiter sofort.
+
 ## 0.5.4
 
 - Regelstrategie 2.0 überarbeitet: gerichteter Vorhalt statt gar keinem D-Anteil.

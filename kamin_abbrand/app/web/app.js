@@ -52,6 +52,19 @@ let toastUhr;
 function toast(text) { const t = document.getElementById("toast"); t.textContent = text; t.classList.add("zeigen"); clearTimeout(toastUhr); toastUhr = setTimeout(() => t.classList.remove("zeigen"), 3200); }
 const melden = (f) => toast(f.message || String(f));
 
+// Ein Schieber mit Pfeiltasten feuert je Schritt ein change. Parallel gesendet, kamen die Werte in beliebiger
+// Reihenfolge an und ein Zwischenwert blieb stehen (22.11.: Vorhalt 0,30 statt 0,25). Deshalb je Schlüssel eine
+// Reihe: immer nur eine Anfrage unterwegs, wartende Zwischenstände entfallen, sobald ein neuerer kommt.
+// Ein entfallener Aufruf löst mit null auf, ohne zu senden.
+const reihen = new Map();
+function inReihe(schluessel, aufgabe) {
+  let reihe = reihen.get(schluessel);
+  if (!reihe) { reihe = { kette: Promise.resolve(), nr: 0 }; reihen.set(schluessel, reihe); }
+  const nr = ++reihe.nr;
+  reihe.kette = reihe.kette.catch(() => {}).then(() => (nr === reihe.nr ? aufgabe() : null));
+  return reihe.kette;
+}
+
 // ---- Lauschen und Betrieb ----------------------------------------------
 // Die Oberfläche zeigt nur an. Ob der Betrieb erlaubt ist, entscheidet der Server.
 let modus = null;
@@ -108,8 +121,13 @@ function betriebKarte(s) {
 // ---- Handbetrieb (Test und Wartung) ----------------------------------
 let handEntwurf = null;   // Schieberwert, solange er noch nicht gesendet ist
 let handDauer = null;     // gewählte Dauer vor dem Einschalten
-async function handSenden(daten, text) {
-  try { await api("api/hand", daten); if (text) toast(text); } catch (f) { melden(f); }
+// Nur die Schritte des Klappenschiebers laufen über die Reihe; Knöpfe senden sofort und entfallen nie.
+async function handSenden(daten, text, schieber = false) {
+  let gesendet = true;
+  const senden = () => api("api/hand", daten);
+  try { gesendet = (await (schieber ? inReihe("hand-klappe", senden) : senden())) !== null; if (gesendet && text) toast(text); }
+  catch (f) { melden(f); }
+  if (!gesendet) return;      // ein neuerer Stand ist unterwegs und zeichnet danach neu
   handEntwurf = null; handDauer = null; aktualisieren();
 }
 function handKarte(s) {
@@ -136,7 +154,7 @@ function handKarte(s) {
       h("span", { klasse: "etikett" }, "Klappe"),
       h("input", { type: "range", min: 0, max: 100, step: 5, value: klappe, disabled: gesperrt, "aria-label": "Klappe im Handbetrieb in Prozent",
         oninput: (e) => { handEntwurf = +e.target.value; anzeige.textContent = `${handEntwurf} %`; },
-        onchange: (e) => handSenden({ an: d.aktiv, klappe: +e.target.value }, `Klappe ${e.target.value} %`) }),
+        onchange: (e) => handSenden({ an: d.aktiv, klappe: +e.target.value }, `Klappe ${e.target.value} %`, true) }),
       anzeige),
     h("div", { klasse: "hand-zeile" }, [0, 50, 100].map(schnell)),
     h("div", { klasse: "hand-zeile" },
@@ -671,7 +689,8 @@ async function eingaengeZeichnen() {
 
 // ---- Einstellungen -----------------------------------------------------
 // Manche Werte gelten erst nach Rückfrage (Mindestklappe unter 5 %). Die App protokolliert die Bestätigung.
-async function setzen(name, wert) {
+function setzen(name, wert) { return inReihe(`parameter:${name}`, () => senden(name, wert)); }
+async function senden(name, wert) {
   try { await api("api/parameter", { name, wert }); }
   catch (f) {
     if (!f.daten || !f.daten.rueckfrage) throw f;
