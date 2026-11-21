@@ -17,6 +17,15 @@
 #   Äußerer Ring  : Abgastemperatur, Farbe = aktuelle Phase
 #   Innerer Ring  : Klappenstellung (Ist), türkis
 #   Legende unten : ● <Phase>  ● Klappe
+#   Zeile "Zug"   : Differenzdruck Schornstein (Pa)
+#
+# Zug-Warnung (Dunstabzugshaube + Kamin!)
+#   Feuer aktiv und Differenzdruck < "Zug Warnschwelle" für 15 s
+#   -> Anzeige wird geweckt (volle Helligkeit, auf jeder Seite),
+#      roter pulsierender Rand + "Kaminzug x,x Pa!" oben, Zug-Zeile rot.
+#   Aus, wenn der Druck 10 s lang >= Schwelle + 1 Pa liegt (Hysterese).
+#   Solange die Warnung steht, geht die Anzeige nicht in den Ruhezustand.
+#   In HA als binary_sensor "Kaminzug Warnung" sichtbar.
 #
 # Anzeige / Einbrennschutz (AMOLED)
 #   - Nach "Anzeige Timeout" ohne Bedienung:
@@ -44,6 +53,7 @@ substitutions:
   e_phase: input_select.kamin_abbrand_phase
   e_modus: input_select.kamin_abbrand_leistungsmodus
   e_feuer: binary_sensor.kamin_feuer_aktiv
+  e_zug: sensor.wohnzimmer_abbrandsteuerung_kamin_kaminzug   # Kaminzug aus der Abbrand-App (Pa, Zug positiv)
   t_skala_max: "350"          # Vollausschlag des Temperaturbogens in °C
   farbe_klappe: "0x1DE9B6"    # innerer Ring + Legende (keine Phase nutzt Türkis)
 
@@ -231,6 +241,19 @@ number:
           then:
             - lambda: id(main_display).set_brightness((uint8_t) (x * 2.55f));
 
+  - platform: template
+    name: "Zug Warnschwelle"
+    id: zug_schwelle
+    icon: mdi:gauge-low
+    entity_category: config
+    unit_of_measurement: Pa
+    min_value: 0
+    max_value: 8
+    step: 0.5
+    initial_value: 3
+    restore_value: true
+    optimistic: true
+
 switch:
   - platform: template
     name: "Anzeige bei Feuer"
@@ -274,6 +297,11 @@ sensor:
       - lambda: |-
           lv_arc_set_value(id(arc_klappe), std::isnan(x) ? 0 : (int16_t) std::max(0.0f, std::min(x, 100.0f)));
       - script.execute: info_zeile
+  - platform: homeassistant
+    id: ha_zug
+    entity_id: ${e_zug}
+    on_value:
+      - script.execute: zug_zeigen
   - platform: homeassistant
     id: ha_volume
     entity_id: ${e_lautstaerke}
@@ -372,6 +400,37 @@ binary_sensor:
             lambda: return id(anzeige_modus) == 2;
           then:
             - script.execute: anzeige_aus
+
+  # Zug-Warnung: Feuer an und Differenzdruck zu gering (mit Hysterese)
+  - platform: template
+    id: zug_warnung
+    name: "Kaminzug Warnung"
+    device_class: problem
+    icon: mdi:weather-windy
+    lambda: |-
+      static bool an = false;
+      float p = id(ha_zug).state;
+      if (!id(ha_feuer).state || std::isnan(p)) an = false;
+      else if (p < id(zug_schwelle).state) an = true;
+      else if (p >= id(zug_schwelle).state + 1.0f) an = false;
+      return an;
+    filters:
+      - delayed_on: 15s
+      - delayed_off: 10s
+    on_press:
+      - script.execute: anzeige_wecken
+      - lvgl.widget.show: [alarm_ring, lbl_alarm]
+      - script.execute: zug_zeigen
+    on_release:
+      - lvgl.widget.hide: [alarm_ring, lbl_alarm]
+      - script.execute: zug_zeigen
+      # Ruhezustand nachholen, falls während der Warnung niemand bedient hat
+      - if:
+          condition:
+            lambda: |-
+              return lv_disp_get_inactive_time(nullptr) > (uint32_t) (id(anzeige_timeout).state * 1000);
+          then:
+            - script.execute: anzeige_idle
 
   # Taster im Drehknopf
   - platform: gpio
@@ -481,7 +540,7 @@ script:
     then:
       - if:
           condition:
-            lambda: return id(anzeige_modus) == 1;
+            lambda: return id(anzeige_modus) == 1 && !id(zug_warnung).state;
           then:
             - if:
                 condition:
@@ -571,6 +630,24 @@ script:
           if (!std::isnan(id(ha_klappe).state)) snprintf(k, sizeof(k), "%d %%", (int) roundf(id(ha_klappe).state));
           lv_label_set_text_fmt(id(lbl_info), "Ziel %s  ·  Klappe %s", z, k);
 
+  - id: zug_zeigen
+    then:
+      - lambda: |-
+          float p = id(ha_zug).state;
+          bool warn = id(zug_warnung).state;
+          char t[24];
+          if (std::isnan(p)) {
+            lv_label_set_text(id(lbl_zug), "Zug -- Pa");
+          } else {
+            snprintf(t, sizeof(t), "Zug %.1f Pa", p);
+            for (char *c = t; *c; c++) if (*c == '.') *c = ',';
+            lv_label_set_text(id(lbl_zug), t);
+            snprintf(t, sizeof(t), "Kaminzug %.1f Pa!", p);
+            for (char *c = t; *c; c++) if (*c == '.') *c = ',';
+            lv_label_set_text(id(lbl_alarm), t);
+          }
+          lv_obj_set_style_text_color(id(lbl_zug), lv_color_hex(warn ? 0xFF1744 : 0xBDBDBD), 0);
+
   - id: modus_setzen
     parameters:
       modus: std::string
@@ -581,8 +658,18 @@ script:
             entity_id: ${e_modus}
             option: !lambda return modus;
 
-# Einbrennschutz im gedimmten Zustand: Inhalt im 3-px-Raster verschieben
 interval:
+  # Zug-Warnung: roten Rand + Text pulsieren lassen
+  - interval: 500ms
+    then:
+      - lambda: |-
+          if (!id(zug_warnung).state) return;
+          static bool hell = false;
+          hell = !hell;
+          lv_opa_t o = hell ? LV_OPA_COVER : LV_OPA_20;
+          lv_obj_set_style_arc_opa(id(alarm_ring), o, LV_PART_MAIN);
+          lv_obj_set_style_text_opa(id(lbl_alarm), hell ? LV_OPA_COVER : LV_OPA_50, 0);
+  # Einbrennschutz im gedimmten Zustand: Inhalt im 3-px-Raster verschieben
   - interval: 2min
     then:
       - lambda: |-
@@ -668,6 +755,36 @@ lvgl:
   # Berührung ab (weckt nur, kein versehentlicher Leistungsmodus-Wechsel).
   top_layer:
     widgets:
+      # Zug-Warnung: roter Rand außen (außerhalb der 440-px-Ringe) + Text oben,
+      # auf jeder Seite sichtbar, nicht anklickbar.
+      - arc:
+          id: alarm_ring
+          align: CENTER
+          width: 464
+          height: 464
+          start_angle: 0
+          end_angle: 360
+          value: 0
+          adjustable: false
+          clickable: false
+          hidden: true
+          arc_width: 10
+          arc_color: 0xFF1744
+          arc_rounded: false
+          indicator:
+            arc_opa: TRANSP
+          knob:
+            bg_opa: TRANSP
+            pad_all: 0
+      - label:
+          id: lbl_alarm
+          align: CENTER
+          y: -192
+          text: "Kaminzug!"
+          text_font: f_mini
+          text_color: 0xFF1744
+          clickable: false
+          hidden: true
       - obj:
           id: wake_shield
           align: CENTER
@@ -747,6 +864,13 @@ lvgl:
             align: CENTER
             y: 40
             text: "Ziel --  ·  Klappe --"
+            text_color: 0xBDBDBD
+        - label:
+            id: lbl_zug
+            align: CENTER
+            y: 72
+            text: "Zug -- Pa"
+            text_font: f_mini
             text_color: 0xBDBDBD
         - button:
             id: btn_eco

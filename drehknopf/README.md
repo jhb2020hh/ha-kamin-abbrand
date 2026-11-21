@@ -10,7 +10,17 @@ Der Kamin ist der Ausgangspunkt, aber nicht die Grenze. Die Anzeige besteht aus 
 | --- | --- | --- | --- |
 | ![Kamin-Seite: äußerer Ring Abgastemperatur in Phasenfarbe, innerer Ring Klappe, Phase Abbrand, 287 °C, Leistungsknöpfe, Legende](../docs/screenshots/drehknopf-kamin.png) | ![Gedimmte Kamin-Seite bei laufendem Feuer](../docs/screenshots/drehknopf-kamin-gedimmt.png) | ![Musik-Seite: Titel, Künstler, Lautstärke, Zurück/Pause/Weiter](../docs/screenshots/drehknopf-musik.png) | ![Display aus](../docs/screenshots/drehknopf-aus.png) |
 
+| Zug-Warnung |
+| --- |
+| ![Zug-Warnung: roter Rand und „Kaminzug −8,4 Pa!“ über der Musik-Seite](../docs/screenshots/drehknopf-zug-warnung.png) |
+
 Die Bilder sind Wireframes mit Beispielwerten, keine Fotos vom Gerät.
+
+## Zug-Warnung
+
+Läuft eine Dunstabzugshaube, während der Kamin brennt, kann sie den Zug im Schornstein umkehren und Rauchgas in den Raum ziehen. Die Kamin-Seite zeigt deshalb den Kaminzug in Pa. Brennt das Feuer und liegt der Zug 15 Sekunden unter der Warnschwelle, wacht das Display auf jeder Seite mit voller Helligkeit auf, ein roter Rand pulsiert und oben steht der aktuelle Wert. Solange die Warnung besteht, geht das Display nicht aus. Sie endet, wenn der Zug 10 Sekunden lang mindestens 1 Pa über der Schwelle liegt.
+
+Die Warnschwelle (Standard 3 Pa) stellst du in Home Assistant am Gerät ein. Die Warnung selbst erscheint dort als `binary_sensor` „Kaminzug Warnung“ und lässt sich in eigenen Automationen nutzen. Das Display ersetzt keinen Unterdruckwächter oder Fensterkontaktschalter für die Haube.
 
 ## Hardware
 
@@ -46,6 +56,7 @@ Alle Entitäten stehen oben in `kamin-drehknopf.yaml` unter `substitutions`. Tra
 
 - `e_t_abgas`: der Sensor mit der Abgastemperatur in °C
 - `e_phase`: die aktuelle Phase, zum Beispiel `sensor.kamin_app_n_phase` aus der App
+- `e_zug`: der Kaminzug in Pa, Zug positiv, zum Beispiel der Kaminzug-Sensor der App
 - `e_t_ziel`, `e_klappe_ist`, `e_feuer`, `e_modus`: Zieltemperatur, Klappenstellung, „Feuer aktiv“ und die Auswahl des Leistungsmodus (ein `input_select` mit Eco, Normal und Power)
 - Musik: Die Zonen in `ha/helfer.yaml` und in der Automation zeigen auf die Player der Beispielanlage. Ersetze sie durch deine eigenen.
 
