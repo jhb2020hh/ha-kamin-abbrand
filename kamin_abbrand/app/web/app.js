@@ -241,8 +241,11 @@ function startZeichnen(s) {
       kennzahl("Ø heute", minuten(ad.schnitt_heute_min)),
       kennzahl("Abbrände heute", zahl(ad.anzahl_heute)),
       kennzahl("Ø gesamt", minuten(ad.schnitt_gesamt_min)),
-      kennzahl("Abbrände gesamt", zahl(ad.anzahl_gesamt))),
-    h("p", { klasse: "leise" }, `Ein Abbrand endet unter ${zahl(ad.t_glut)} °C oder beim nächsten Nachlegen. Fehlstarts zählen nicht.`));
+      kennzahl("Abbrände gesamt", zahl(ad.anzahl_gesamt)),
+      ad.nachlegen_aktuell !== null && ad.nachlegen_aktuell !== undefined
+        ? kennzahl("Nachgelegt (laufend)", zahl(ad.nachlegen_aktuell))
+        : kennzahl("Nachgelegt (letzter)", ad.nachlegen_letzte === null || ad.nachlegen_letzte === undefined ? "–" : zahl(ad.nachlegen_letzte))),
+    h("p", { klasse: "leise" }, `Ein Abbrand endet unter ${zahl(ad.t_glut)} °C oder beim nächsten Nachlegen mit Anheizen. Nachlegen im heißen Abbrand setzt ihn fort. Fehlstarts zählen nicht.`));
   const fehlerKarte = (s.stoerung || s.klappe_folgt_nicht || (s.betrieb && s.betrieb.stoerung)) && h("div", { klasse: "karte", stil: "--farbe:var(--fehler)" },
     h("h2", {}, "Fehler quittieren"),
     s.modus === "betrieb"

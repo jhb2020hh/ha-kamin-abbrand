@@ -192,7 +192,10 @@ PARAMETER_THEMEN: tuple[tuple[str, tuple[Feld, ...]], ...] = (
         _f("klappe_max_abbrand", "Klappe höchstens", "Weiter öffnet die Klappe im Abbrand nicht.", 20, 100, 5, "%"),
         _f("klappe_min_entgasung", "Klappe mindestens beim Entgasen", "In den ersten Minuten braucht das Holz mehr Luft. Unter 5 % nur nach Rückfrage.",
            0, 100, 5, "%", KLAPPE_RUECKFRAGE_UNTER),
-        _f("entgasung_dauer", "Dauer der Entgasung", "So lange gilt die höhere Mindeststellung.", 0, 40, 1, "min"),
+        _f("entgasung_dauer", "Dauer der Entgasung", "So lange gilt die höhere Mindeststellung. Nach dem Nachlegen im Abbrand beginnt sie neu.", 0, 40, 1, "min"),
+        _f("tuer_nachlegen_min_s", "Tür offen ab (Nachlegen)",
+           "Wird im heißen Abbrand nachgelegt, regelt die App ohne Anheizen weiter. Erst eine Türöffnung ab dieser "
+           "Dauer zählt als Nachlegen und als Auflage. Kürzer gilt als „nur geschaut“.", 0, 120, 1, "s"),
         _f("klappe_schliessrate", "Schließgeschwindigkeit", "So weit schließt die Klappe höchstens je 30 s.", 1, 50, 1, "%"),
         _f("regler_i_start_kalt", "Startwert kalter Ofen", "Klappenstellung, mit der der Regler nach dem Kaltstart beginnt.", 20, 100, 5, "%"),
         _f("regler_i_start_heiss", "Startwert heißer Ofen", "Klappenstellung, mit der der Regler auf heißem Ofen beginnt.", 20, 100, 5, "%"),

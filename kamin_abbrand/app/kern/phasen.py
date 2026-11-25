@@ -69,6 +69,12 @@ def phase_setzen(lauf: Lauf, phase: str) -> None:
             z.t_phasenstart = t_jetzt
     if phase == ABBRAND and alt != ABBRAND:
         z.i_anteil = i_start(t_vorher, lauf.p)
+    # Nachlegen im Abbrand (Issue #4): Ein neuer Abbrand beginnt ohne Nachlegen; der Merker
+    # „Tür aus Abbrand“ gilt nur, solange die Tür offen ist. _zurueck_in_abbrand stellt danach her.
+    if phase == ABBRAND:
+        z.nachgelegt_seit, z.nachlegen_anzahl = None, 0
+    if phase != TUER_OFFEN:
+        z.tuer_aus_abbrand, z.abbrand_seit = False, None
     lauf.uebergang = (alt, phase)
 
 
@@ -183,12 +189,12 @@ def _zusammengefallen(lauf: Lauf) -> None:
     phase_setzen(lauf, ANHEIZFEHLER)
     if w.brikett:
         lauf.push(TITEL_ANHEIZFEHLER,
-                  f"Abbrand nach {runde(w.s / 60)} min zusammengefallen ({runde(w.t)} °C) – "
+                  f"Abbrand nach {runde(w.s_frist / 60)} min zusammengefallen ({runde(w.t)} °C) – "
                   "die Briketts sind nicht richtig angegangen. Grundglut prüfen, "
                   f"die Klappe bleibt mindestens auf {runde(w.kglut_brikett)} %.")
         return
     lauf.push(TITEL_ANHEIZFEHLER,
-              f"Feuer nach {runde(w.s / 60)} min zusammengefallen ({runde(w.t)} °C) – "
+              f"Feuer nach {runde(w.s_frist / 60)} min zusammengefallen ({runde(w.t)} °C) – "
               "die Scheite brennen nicht richtig (zu feucht/zu dick?). "
               "Klappe offen, Feuer prüfen.")
 
@@ -415,6 +421,48 @@ def _quittieren(lauf: Lauf) -> None:
     lauf.push(TITEL, f"{alt} quittiert ({runde(w.t)} °C), weiter mit {lauf.z.phase}.")
 
 
+# ---------- Nachlegen im Abbrand (Issue #4) ----------
+
+def _tuer_auf_neu(lauf: Lauf) -> None:
+    """Wie „Tür auf“, merkt sich aber einen laufenden Abbrand, um nach dem Schließen ohne Anheizen
+    dorthin zurückzukehren. Das Abbrand-Maximum bleibt für den Fall, dass nur geschaut wurde."""
+    z = lauf.z
+    aus_abbrand = lauf.w.phase == ABBRAND
+    seit, tmax = z.phase_seit, z.t_maximum
+    phase_setzen(lauf, TUER_OFFEN)
+    if aus_abbrand:
+        z.tuer_aus_abbrand, z.abbrand_seit, z.t_maximum = True, seit, tmax
+
+
+def _zurueck_in_abbrand_moeglich(lauf: Lauf) -> bool:
+    w = lauf.w
+    return (_in(lauf, TUER_OFFEN) and w.tuer_offen is False and lauf.z.tuer_aus_abbrand
+            and w.t_ok and w.t >= w.tstart)
+
+
+def _zurueck_in_abbrand(lauf: Lauf) -> None:
+    """Abbrand läuft weiter: Phasenbeginn und I-Anteil bleiben. Nach einer Öffnung ab
+    tuer_nachlegen_min_s gilt das als Nachlegen, die Fristen des Abbrands beginnen neu."""
+    z, e, w, p = lauf.z, lauf.e, lauf.w, lauf.p
+    offen_s = w.s
+    seit = z.abbrand_seit if z.abbrand_seit is not None else z.phase_seit
+    i, tmax, n_seit, anzahl = z.i_anteil, z.t_maximum, z.nachgelegt_seit, z.nachlegen_anzahl
+    phase_setzen(lauf, ABBRAND)
+    z.phase_seit, z.i_anteil = seit, i
+    if offen_s >= p.tuer_nachlegen_min_s:
+        z.nachgelegt_seit, z.nachlegen_anzahl = float(int(e.jetzt)), anzahl + 1
+    else:
+        z.nachgelegt_seit, z.nachlegen_anzahl, z.t_maximum = n_seit, anzahl, tmax
+
+
+ZURUECK_IN_ABBRAND = "Tür zu → zurück in Abbrand (Nachlegen im Abbrand)"
+
+
+def nachlegen_im_abbrand(z: Zustand, jetzt: float) -> bool:
+    """True direkt nach einer Rückkehr, die als Nachlegen zählt (nicht nur kurz geschaut)."""
+    return z.nachgelegt_seit is not None and z.nachgelegt_seit >= int(jetzt)
+
+
 def _regeln_neu() -> tuple[Regel, ...]:
     ersetzt = {
         "Störung: erst bei frischem Messwert beenden, sonst halten":
@@ -427,6 +475,16 @@ def _regeln_neu() -> tuple[Regel, ...]:
             lambda r: Regel(r.alias, lambda l: r.bedingung(l) and _nachlegen_belegt(l), r.aktion),
         "Glut → Anheizen (Nachlegen erkannt)":
             lambda r: Regel(r.alias, lambda l: r.bedingung(l) and _nachlegen_belegt(l), r.aktion),
+        "Tür auf → Klappe auf":
+            lambda r: Regel(r.alias, r.bedingung, _tuer_auf_neu),
+        # Fristen ab dem letzten Nachlegen im Abbrand (ohne Nachlegen gleich s)
+        "Abbrand → Ausbrand (nach ≥ 15 min, 3 min ≥ Abfall unter min(Maximum, Ziel))":
+            lambda r: Regel(r.alias, lambda l: (_in(l, ABBRAND) and l.w.s_frist >= 900
+                                                and l.w.tmax3 <= min(l.w.tmax, l.w.ziel) - l.w.abfall
+                                                and l.w.twt <= l.w.twmax - 5), r.aktion),
+        "Abbrand bricht nach < 15 min zusammen → Anheizfehler":
+            lambda r: Regel(r.alias, lambda l: _in(l, ABBRAND) and l.w.t < l.w.glut and l.w.s_frist < 900,
+                            r.aktion),
     }
     regeln = [ersetzt[r.alias](r) if r.alias in ersetzt else r for r in REGELN_PARITAET]
     # Briketts brauchen länger zum Überzünden. Der stille Rücksprung würde sie mit der Glut-Klappe
@@ -439,6 +497,9 @@ def _regeln_neu() -> tuple[Regel, ...]:
     regeln.remove(tuer)
     stopp = next(i for i, r in enumerate(regeln) if r.alias == "Kein Messwert → Phase halten")
     regeln.insert(stopp, tuer)
+    # Nachlegen im Abbrand: vor „Tür zu → Anheizen“, nur mit Messwert ab T Abbrandstart.
+    tuer_zu = next(i for i, r in enumerate(regeln) if r.alias == "Tür zu → Anheizen")
+    regeln.insert(tuer_zu, Regel(ZURUECK_IN_ABBRAND, _zurueck_in_abbrand_moeglich, _zurueck_in_abbrand))
     # Quittieren braucht einen Messwert, deshalb direkt hinter „Kein Messwert → Phase halten“.
     stopp = next(i for i, r in enumerate(regeln) if r.alias == "Kein Messwert → Phase halten")
     regeln.insert(stopp + 1, Regel("Fehler quittiert → passende Phase",

@@ -48,7 +48,7 @@ from kern import wasser as kern_wasser
 from kern import abbrand_dauer
 from kern.wirtschaft import energie_nach_kwh, leistung_nach_kw
 from kern.einmessen import FERTIG, FEUER, KALT, KEIN_FEUER, NACHLEGEN, Ereignis
-from kern.phasen import TITEL_ANHEIZFEHLER, TITEL_STOERUNG
+from kern.phasen import TITEL_ANHEIZFEHLER, TITEL_STOERUNG, ZURUECK_IN_ABBRAND, nachlegen_im_abbrand
 from kern.signale import t_gueltig
 from kern.typen import (ABBRAND, ABKUEHLEN, AKTION_BRENNSTOFF_HOLZ, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, BRIKETTS, GLUT, HOLZ,
                         NEU, PARITAET, QUITTIEREN, SENSOR_WEG, STANDBY, STOERUNG, TICK, Parameter, Zustand)
@@ -492,7 +492,12 @@ class App:
                 log.info("[%s] %s → %s (%s)", regelstand, *ergebnis.uebergang, ergebnis.regel)
                 if regelstand == self.fuehrender_regelstand:
                     self.meldungen.appendleft({"zeit": jetzt, "text": "{} → {}".format(*ergebnis.uebergang)})
-                if (regelstand == self.fuehrender_regelstand and ergebnis.uebergang == (ANHEIZEN, ABBRAND)
+                nachgelegt = ergebnis.regel == ZURUECK_IN_ABBRAND and nachlegen_im_abbrand(ergebnis.zustand, jetzt)
+                if regelstand == self.fuehrender_regelstand and nachgelegt:
+                    self.meldungen.appendleft({"zeit": jetzt, "text": "Nachgelegt im Abbrand ({}. Mal), ohne Anheizen"
+                                               .format(ergebnis.zustand.nachlegen_anzahl)})
+                if (regelstand == self.fuehrender_regelstand
+                        and (ergebnis.uebergang == (ANHEIZEN, ABBRAND) or nachgelegt)
                         and self.buchfuehrung is not None and self._auflage_erlaubt()):
                     self._auflage_buchen(jetzt)
                 if (regelstand == self.fuehrender_regelstand and ergebnis.uebergang[1] == GLUT
@@ -1312,7 +1317,8 @@ class App:
         return self._tuer_seit_auflage or not mit_kontakt
 
     def _auflage_buchen(self, jetzt: float) -> None:
-        """Eine Auflage ist der Übergang Anheizen → Abbrand des führenden Regelstands nach offener Tür."""
+        """Eine Auflage ist der Übergang Anheizen → Abbrand des führenden Regelstands nach offener Tür,
+        oder das Nachlegen im Abbrand (Tür offen → Abbrand ohne Anheizen, Issue #4)."""
         self._tuer_seit_auflage = False
         self._letzte_auflage = jetzt
         try:
@@ -1426,7 +1432,9 @@ class App:
             s, tag = self.dauer, datetime.fromtimestamp(jetzt).date().isoformat()
             vorher = s.vorbelegt
             self._dauer_vorbelegen(s, tag)
-            if abbrand_dauer.fortschreiben(s, zustand.phase, zustand.phase_seit, jetzt, tag) or s.vorbelegt != vorher:
+            if (abbrand_dauer.fortschreiben(s, zustand.phase, zustand.phase_seit, jetzt, tag,
+                                            nachlegen=zustand.nachlegen_anzahl)
+                    or s.vorbelegt != vorher):
                 self.speicher.daten["abbrand_dauer"] = s.als_dict()
                 self.speicher.speichern()
         except Exception:

@@ -6,7 +6,7 @@ klappe_soll stammen aus dem dann aktuellen Zustand, alles andere aus `Werte`.
 from __future__ import annotations
 
 from kern.regler import klappe_minimum
-from kern.signale import Werte, runde, sp_phase
+from kern.signale import Werte, frist_seit, runde, sp_phase
 from kern.typen import (ABBRAND, ABKUEHLEN, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, GLUT,
                         STANDBY, STOERUNG, TUER_OFFEN, WARTUNG, Eingaben, Zustand)
 
@@ -77,7 +77,7 @@ def soll_neu(e: Eingaben, z: Zustand, w: Werte, dt: float) -> int:
 def soll_roh(e: Eingaben, z: Zustand, w: Werte, schliessen: float | None = None,
              basis: float | None = None, neu: bool = False) -> float:
     p = z.phase
-    k = _phasenwert(z, w, sp_phase(e.jetzt, z.phase_seit),
+    k = _phasenwert(z, w, sp_phase(e.jetzt, frist_seit(z)),
                     w.krate if schliessen is None else schliessen,
                     z.klappe_soll if basis is None else basis)
     if e.handbetrieb and p != WARTUNG:

@@ -172,7 +172,8 @@ Was du bei 2.0 beobachten kannst: Sinkt die Dämpfung bei jedem Abbrand auf 30 %
 | Zieltemperatur, Ziel bei Eco/Normal/Power | Siehe Begriff „Ziel“. Die Leistungsknöpfe wählen einen dieser Werte. |
 | Klappe mindestens | Untergrenze der Regelung. Höher hält die Flamme sicher, auch wenn es zu heiß wird. Niedriger drosselt stärker, das Feuer kann aber ersticken und CO bilden (unter 5 % nur nach Rückfrage). Liegt die Klappe oft an dieser Grenze und die Temperatur trotzdem über dem Ziel, ist das Ziel für dieses Holz zu niedrig. |
 | Klappe höchstens | Obergrenze der Regelung. |
-| Klappe mindestens beim Entgasen / Dauer der Entgasung | In den ersten Minuten nach dem Auflegen gast das Holz stark aus und braucht mehr Luft. So lange gilt die höhere Untergrenze. |
+| Klappe mindestens beim Entgasen / Dauer der Entgasung | In den ersten Minuten nach dem Auflegen gast das Holz stark aus und braucht mehr Luft. So lange gilt die höhere Untergrenze. Nach dem Nachlegen im Abbrand beginnt sie neu. |
+| Tür offen ab (Nachlegen) | Legst du im laufenden Abbrand nach und ist das Abgas beim Schließen der Tür noch mindestens „Abbrand beginnt bei“, regelt die App ohne Anheizen weiter. Der Abbrand läuft weiter, der Regler behält seinen Stand. Entgasung, frühester Ausbrand (15 min) und die Prüfung auf ein zusammengefallenes Feuer zählen ab dem Nachlegen neu. Erst eine Türöffnung ab dieser Dauer (Vorgabe 10 s) zählt als Nachlegen und als Auflage, kürzer gilt als „nur geschaut“. Ist es beim Schließen kälter oder fehlt der Messwert, heizt die App wie bisher an. Gilt nur im Regelstand „neu“. |
 | Schließgeschwindigkeit | So viel % darf die Klappe je 30 s höchstens zugehen. Langsamer verhindert, dass ein heißer Moment das Feuer abwürgt. Öffnen ist nicht begrenzt. |
 | Startwert kalter / heißer Ofen | Klappe, mit der der Regler im Abbrand beginnt. Passt der Startwert, gibt es beim Übergang weniger Überschwingen. |
 
@@ -210,7 +211,7 @@ Die Seite **Kosten** vergleicht Holz mit deinen Wärmeerzeugern je kWh Nutzwärm
 
 - Preise sind nicht vorbelegt. Was keinen Preis hat, erscheint nicht im Vergleich, und die Seite nennt, was fehlt.
 - Mit Wärmemengenzähler und Zähler der bisherigen Heizung ist die Einsparung **gemessen**, sonst eine gekennzeichnete **Schätzung** aus dem Holz. Eine gemessene Einsparung entsteht erst am abgeschlossenen Tag.
-- Eine Auflage zählt die App beim Übergang von Anheizen zu Abbrand. Ohne „kg je Auflage“ zählt sie nur und bucht kein Holz. Korrigieren kannst du von Hand.
+- Eine Auflage zählt die App beim Übergang von Anheizen zu Abbrand und beim Nachlegen im laufenden Abbrand. Öffnest du die Tür innerhalb von 10 min nach einer Auflage, gilt das als Schüren. Ohne „kg je Auflage“ zählt sie nur und bucht kein Holz. Korrigieren kannst du von Hand.
 - Die Referenz (Verbrauch über Außentemperatur) kannst du eintragen oder nach mindestens 14 Tagen ohne Feuer vorschlagen lassen.
 - Ein Urteil zur Amortisation gibt es erst ab 50 kWh Kaminwärme. Der Tagespreis wird fest gebucht, spätere Preisänderungen ändern die Vergangenheit nicht.
 

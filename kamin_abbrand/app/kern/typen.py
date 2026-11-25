@@ -117,6 +117,8 @@ class Parameter:
     regler2_nachstellzeit: float = 2            # min
     regler2_vorhaltung_fallend: float = 0.5     # %·min/K, Abgas fällt unter dem Ziel weiter: Klappe auf
     regler2_vorhaltung_steigend: float = 0.25   # %·min/K, Abgas steigt über dem Ziel weiter: Klappe zu
+    # Nachlegen im Abbrand (Issue #4, nur Regelstand neu): Kürzere Türöffnungen zählen nur als Schauen.
+    tuer_nachlegen_min_s: float = 10            # s
 
     @classmethod
     def feldnamen(cls) -> tuple[str, ...]:
@@ -179,6 +181,11 @@ class Zustand:
     sw_wellen: tuple[float, ...] = ()
     sw_ruhig_seit: Optional[float] = None
     sw_gedaempft: Optional[float] = None    # Zeitpunkt der letzten Dämpfung
+    # Nachlegen im Abbrand (Issue #4): Tür aus dem Abbrand geöffnet, dann ohne Anheizen zurück.
+    tuer_aus_abbrand: bool = False
+    abbrand_seit: Optional[float] = None    # Phasenbeginn des Abbrands vor dem Öffnen
+    nachgelegt_seit: Optional[float] = None  # ab hier zählen Entgasung, Ausbrand- und Zusammenbruch-Frist
+    nachlegen_anzahl: int = 0               # Nachlegevorgänge im laufenden Abbrand
 
 
 NUR_APP_FELDER = frozenset({
@@ -187,6 +194,7 @@ NUR_APP_FELDER = frozenset({
     "regelstrategie", "regler2_verstaerkung", "regler2_nachstellzeit",
     "regler2_vorhaltung_fallend", "regler2_vorhaltung_steigend",
     "fuehler_art", "fuehler_timeout_feuer", "fuehler_ausfall",
+    "tuer_nachlegen_min_s",
 })
 
 

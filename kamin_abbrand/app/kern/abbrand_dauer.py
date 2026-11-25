@@ -4,6 +4,10 @@ Ein Abbrand beginnt beim Öffnen der Tür oder beim Anheizen, zählt aber erst, 
 Abbrand erreicht ist. Fehlstarts zählen also nicht. Er endet mit Glut, Abkühlen, Standby oder
 Anheizfehler oder beim nächsten bestätigten Nachlegen, dann mit dem Öffnen der Tür. Ein Abbrand
 über Mitternacht zählt zum Tag seines Endes.
+
+Nachlegen im Abbrand (Issue #4): Geht die Tür im Abbrand auf und kehrt die Steuerung danach
+ohne Anheizen in den Abbrand zurück, läuft derselbe Abbrand weiter. Gezählt werden dann nur
+die Nachlegevorgänge, die der Kern meldet.
 """
 from __future__ import annotations
 
@@ -31,6 +35,9 @@ class DauerStand:
     anzahl_heute: int = 0
     tag: Optional[str] = None
     vorbelegt: bool = False
+    aus_abbrand: bool = False           # Tür wurde im laufenden Abbrand geöffnet
+    nachlegen: int = 0                  # Nachlegevorgänge im laufenden Abbrand
+    letzte_nachlegen: Optional[int] = None
 
     def als_dict(self) -> dict:
         return asdict(self)
@@ -51,6 +58,7 @@ def _buchen(s: DauerStand, dauer_min: float) -> None:
     if not 0 < dauer_min < _DAUER_MAX_MIN:
         return
     s.letzte_min = dauer_min
+    s.letzte_nachlegen = s.nachlegen
     s.summe_gesamt_min = round(s.summe_gesamt_min + dauer_min, 1)
     s.summe_heute_min = round(s.summe_heute_min + dauer_min, 1)
     s.anzahl_gesamt += 1
@@ -64,10 +72,15 @@ def _bestaetigen(s: DauerStand, wann: float) -> None:
         _buchen(s, (neu_start - s.start) / 60.0)
     s.start = neu_start
     s.laeuft = True
+    s.nachlegen = 0
 
 
-def fortschreiben(s: DauerStand, phase: str, phase_seit: float, jetzt: float, tag: str) -> bool:
-    """Übernimmt die aktuelle Phase. True, wenn sich etwas Speicherwürdiges geändert hat."""
+def fortschreiben(s: DauerStand, phase: str, phase_seit: float, jetzt: float, tag: str,
+                  nachlegen: int = 0) -> bool:
+    """Übernimmt die aktuelle Phase. True, wenn sich etwas Speicherwürdiges geändert hat.
+
+    nachlegen ist der Nachlegezähler des Kerns für den laufenden Abbrand.
+    """
     geaendert = False
     if s.tag != tag:
         if s.tag is not None:
@@ -75,6 +88,9 @@ def fortschreiben(s: DauerStand, phase: str, phase_seit: float, jetzt: float, ta
         s.tag = tag
         geaendert = True
     alt, s.phase = s.phase, phase
+    if phase == ABBRAND and s.laeuft and nachlegen != s.nachlegen:
+        s.nachlegen = nachlegen
+        geaendert = True
     if phase == alt:
         return geaendert
     if alt is None:
@@ -83,11 +99,16 @@ def fortschreiben(s: DauerStand, phase: str, phase_seit: float, jetzt: float, ta
     if phase in _START:
         if alt not in _START:
             s.kandidat = wann
+        s.aus_abbrand = phase == TUER_OFFEN and alt == ABBRAND and s.laeuft
     elif phase == ABBRAND:
-        if alt in _START:
+        if alt == TUER_OFFEN and s.aus_abbrand:
+            s.nachlegen = nachlegen       # derselbe Abbrand läuft weiter
+        elif alt in _START:
             _bestaetigen(s, wann)
+        s.aus_abbrand = False
     elif phase in _ENDE and s.laeuft:
         s.laeuft = False
+        s.aus_abbrand = False
         _buchen(s, (wann - s.start) / 60.0)
     return True
 
@@ -101,4 +122,6 @@ def anzeige(s: DauerStand, jetzt: float) -> dict:
         "anzahl_heute": s.anzahl_heute,
         "schnitt_gesamt_min": round(s.summe_gesamt_min / s.anzahl_gesamt, 1) if s.anzahl_gesamt else None,
         "anzahl_gesamt": s.anzahl_gesamt,
+        "nachlegen_aktuell": s.nachlegen if s.laeuft else None,
+        "nachlegen_letzte": s.letzte_nachlegen,
     }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.6
+
+- Neu: Nachlegen im laufenden Abbrand ohne Anheizen (Issue #4, Regelstand neu). Bisher ging es nach dem Schließen der Tür immer ins Anheizen mit fester Klappe 60 %, und die Abbrand-Dauer zählte zwei kurze Abbrände. Ist das Abgas beim Schließen noch mindestens „Abbrand beginnt bei“ (160 °C), geht es jetzt direkt zurück in den Abbrand:
+  - Der Abbrand läuft weiter, Phasenbeginn und I-Anteil des Reglers bleiben.
+  - Entgasungs-Minimum, frühester Ausbrand (15 min) und „Feuer zusammengefallen“ zählen ab dem Nachlegen neu.
+  - Die Abbrand-Dauer bleibt ein Abbrand und zeigt, wie oft nachgelegt wurde. Im Verlauf steht „Nachgelegt im Abbrand“.
+  - Eine Auflage wird gebucht, mit derselben 10-min-Schürsperre wie bisher. Auch mit Briketts.
+  - Neue Einstellung „Tür offen ab (Nachlegen)“ unter Parameter → Abbrand (Vorgabe 10 s). Kürzeres Öffnen gilt als „nur geschaut“: zurück in den Abbrand, aber kein Nachlegen und keine Auflage.
+  - Kälter als 160 °C, ohne Messwert, aus Ausbrand oder Glut und im Regelstand „paritaet“ bleibt alles wie bisher.
+- Im Simulator (14 Szenarien, Start im Abbrand) liegen Spitze, Zeit im Band und Einbrüche gleichauf mit dem Weg über das Anheizen (Spitze max 290 statt 289 °C, Median 275 statt 274 °C, kein Einbruch). Die Spitzen nach dem Nachlegen kommen vom Entgasungs-Minimum und dem Klappenversatz, nicht vom Anheizen. Das bleibt ein eigenes Thema.
+
 ## 0.5.5
 
 - Korrigiert: Schieber in Regler und Einstellungen speicherten bei schnellen Schritten mit den Pfeiltasten manchmal einen Zwischenwert. Jeder Schritt schickte eine eigene Anfrage, und die kamen in beliebiger Reihenfolge an (22.11.: Vorhalt beim Fallen stand auf 0,30, obwohl der Schieber 0,25 zeigte). Jetzt ist je Feld nur eine Anfrage unterwegs, und wartende Zwischenwerte entfallen, sobald ein neuerer kommt. Gespeichert wird also immer der zuletzt eingestellte Wert.

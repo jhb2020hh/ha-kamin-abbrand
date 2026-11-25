@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 
 from kern import klappe, phasen, regler, schwingung
 from kern.phasen import Lauf, Regel
-from kern.signale import nachlauf_aktiv, signal_bewerten, sp_phase, t_gueltig, werte_ermitteln
+from kern.signale import frist_seit, nachlauf_aktiv, signal_bewerten, sp_phase, t_gueltig, werte_ermitteln
 from kern.typen import (ABBRAND, AKTION_BRENNSTOFF_HOLZ, ANHEIZEN, ANHEIZFEHLER, AUSBRAND, BRIKETTS, HOLZ, NEU,
                         PARITAET, SIGNAL_FRISCH, STANDBY, TICK, TUER_OFFEN, Eingaben, Ergebnis, Meldung, Parameter,
                         Zustand)
@@ -121,7 +121,7 @@ class Steuerung:
                 w = self._strategie_2(e, z, p, w)
             if regler.integration_aktiv(e, w, z.phase):
                 z.i_anteil = regler.i_integrieren(
-                    z.i_anteil, w, sp_phase(e.jetzt, z.phase_seit), dt, gerundet=not profil.neu)
+                    z.i_anteil, w, sp_phase(e.jetzt, frist_seit(z)), dt, gerundet=not profil.neu)
             soll = (klappe.soll_neu(e, z, w, dt) if profil.neu
                     else klappe.soll_berechnen(e, z, w))
             klappe.soll_schreiben(z, soll)

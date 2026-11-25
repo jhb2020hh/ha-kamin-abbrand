@@ -51,6 +51,17 @@ def s_phase(jetzt: float, phase_seit: float) -> int:
     return int(jetzt - phase_seit)
 
 
+def frist_seit(z: Zustand) -> float:
+    """Bezug für die Fristen des Abbrands: Phasenbeginn oder, später, das letzte Nachlegen im Abbrand.
+
+    Entgasungs-Minimum, frühester Ausbrand und Zusammenbruch zählen ab dem Nachlegen neu (Issue #4).
+    Die Abbranddauer selbst rechnet weiter ab phase_seit.
+    """
+    if z.phase == ABBRAND and z.nachgelegt_seit is not None:
+        return max(z.phase_seit, z.nachgelegt_seit)
+    return z.phase_seit
+
+
 def sp_phase(jetzt: float, phase_seit: float) -> float:
     """Template-Größe `sp`: ungerundet, mit dem dann aktuellen phase_seit."""
     return jetzt - phase_seit
@@ -164,6 +175,7 @@ class Werte:
     kfeuer: float
     kkalt: float
     t_kalt_ende: float
+    s_frist: int                        # Sekunden seit frist_seit: im Abbrand ab dem letzten Nachlegen
     # Brennstoff (nur Regelstand neu)
     brikett: bool = False               # Briketts gewählt: Parameter sind schon ersetzt
     nachlauf: bool = False              # Kohle glüht womöglich noch: Klappe nicht unter kglut_brikett
@@ -196,6 +208,7 @@ def werte_ermitteln(e: Eingaben, p: Parameter, z: Zustand, brikett: bool = False
         tuer_offen=e.tuer_offen,
         phase=z.phase,
         s=s_phase(e.jetzt, z.phase_seit),
+        s_frist=s_phase(e.jetzt, frist_seit(z)),
         kalt=p.t_kalt,
         tstart=p.t_abbrandstart,
         ziel=p.t_ziel,
